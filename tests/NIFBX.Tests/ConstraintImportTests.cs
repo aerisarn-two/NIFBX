@@ -81,9 +81,28 @@ namespace NIFBX.Tests
 
         // --- rebuilding --------------------------------------------------------
 
+        /// <summary>
+        /// A file per constraint kind. The furniture one carries compressed mesh
+        /// collision too, so it drops out where MOPP cannot be built.
+        /// </summary>
+        public static TheoryData<string, string> ConstraintFiles()
+        {
+            var data = new TheoryData<string, string>();
+
+            foreach ((string file, string block) in new[]
+            {
+                ("TestNifFile_Furniture_Col_SE.nif", "bhkBreakableConstraint"),
+                ("TestNifFile_DeepGraph_SE.nif", "bhkBallSocketConstraintChain"),
+            })
+            {
+                if (Mopp.Runnable(Path.Combine("nifly", file).Replace('\\', '/'))) data.Add(file, block);
+            }
+
+            return data;
+        }
+
         [Theory]
-        [InlineData("TestNifFile_Furniture_Col_SE.nif", "bhkBreakableConstraint")]
-        [InlineData("TestNifFile_DeepGraph_SE.nif", "bhkBallSocketConstraintChain")]
+        [MemberData(nameof(ConstraintFiles))]
         public void ConstraintsComeBackAsTheirOwnBlockType(string file, string block)
         {
             (NifModel model, List<string> warnings) = RoundTrip(file);

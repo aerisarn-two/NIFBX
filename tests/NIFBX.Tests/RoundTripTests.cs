@@ -158,6 +158,26 @@ namespace NIFBX.Tests
         /// they would make the run depend on local state) and so does the corrupted
         /// fixture, which exists to fail loading.
         /// </remarks>
+        /// <summary>
+        /// Node kinds and a file carrying each. MultiBound's file has compressed
+        /// mesh collision, so it drops out where MOPP cannot be built.
+        /// </summary>
+        public static TheoryData<string, string> NodeKinds()
+        {
+            var data = new TheoryData<string, string>();
+
+            foreach ((string file, string kind) in new[]
+            {
+                ("nifly/TestNifFile_OrderedNode_SE.nif", "BSOrderedNode"),
+                ("nifly/TestNifFile_MultiBound_SE.nif", "BSMultiBoundNode"),
+            })
+            {
+                if (Mopp.Runnable(file)) data.Add(file, kind);
+            }
+
+            return data;
+        }
+
         public static TheoryData<string> EveryFixture()
         {
             var data = new TheoryData<string>();
@@ -166,6 +186,9 @@ namespace NIFBX.Tests
             foreach (string path in Directory.GetFiles(root, "*.nif", SearchOption.AllDirectories)
                          .Select(p => Path.GetRelativePath(root, p).Replace('\\', '/'))
                          .Where(FixtureFiles.IsFixture)
+                         // A fixture whose collision has to be rebuilt through
+                         // MOPP is not enumerated where no backend can build one.
+                         .Where(Mopp.Runnable)
                          .OrderBy(p => p, StringComparer.Ordinal))
             {
                 data.Add(path);
@@ -252,8 +275,7 @@ namespace NIFBX.Tests
         }
 
         [Theory]
-        [InlineData("nifly/TestNifFile_OrderedNode_SE.nif", "BSOrderedNode")]
-        [InlineData("nifly/TestNifFile_MultiBound_SE.nif", "BSMultiBoundNode")]
+        [MemberData(nameof(NodeKinds))]
         public void ANodeKeepsItsKind(string name, string kind)
         {
             NifModel source = Load(name);
@@ -350,7 +372,7 @@ namespace NIFBX.Tests
             Assert.Equal(size.Z / 2f, mesh.Vertices.Max(v => v.Z), 2);
         }
 
-        [Fact]
+        [MoppFact]
         public void TheCullingVolumeDoesNotBecomeGeometry()
         {
             // It is a picture of the bound, not part of the model. Left unrecognised
@@ -364,7 +386,7 @@ namespace NIFBX.Tests
             Assert.Equal(shapes, rebuilt.Blocks.Count(b => rebuilt.BlockInherits(b, "BSTriShape")));
         }
 
-                [Fact]
+        [MoppFact]
         public void AMultiBoundNodeKeepsItsVolume()
         {
             // The volume is the whole point of the class: the engine culls against it
@@ -1883,7 +1905,7 @@ namespace NIFBX.Tests
             _ = checked_;
         }
 
-        [Fact]
+        [MoppFact]
         public void EveryCollisionShapeSurvives()
         {
             // A container held a tree and the import returned the first leaf it found,
