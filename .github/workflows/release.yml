@@ -2,9 +2,15 @@
 # Builds NIFBX, runs the tests, and publishes it as a NuGet package on
 # GitHub Packages plus a GitHub release carrying the assemblies.
 #
-# Tagging is the trigger, so build and release are one workflow: two workflows on
-# the same tag would build the same assembly twice and could publish a different
-# one from the one that was tested.
+# Tagging is the trigger, and tests gate the release: nothing is packed or pushed
+# until the suite has passed on both platforms, in this same workflow and off this
+# same commit.
+#
+# Tests run on Windows as well as Linux because of MOPP. Rebuilding mesh collision
+# means building a MOPP tree, which only Havok's own code can do -- mopper.exe, a
+# 32-bit Windows binary that the Mopper.Native package supplies. A Linux runner has
+# no Wine to put it through, so the collision round trip is skipped there; Windows
+# runs it directly through WOW64, and those tests actually execute.
 #
 # Use workflow_dispatch to build, test and pack without publishing anything.
 #
@@ -24,7 +30,50 @@ env:
   DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
 
 jobs:
-  build:
+  #
+  # Linux proves the library builds and runs where it is developed. Windows is
+  # what makes the collision round trip testable at all: it is the only runner
+  # that can execute mopper.exe.
+  #
+  # fail-fast is off so a platform-specific failure is not hidden by the other
+  # platform failing first -- knowing it broke on one and not the other is most
+  # of the diagnosis.
+  #
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Restore
+        env:
+          GITHUB_USERNAME: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore -c Release
+
+      #
+      # The two corpus suites need an installed copy of the game to read BSAs
+      # from and skip on both platforms. On Linux the collision round trip skips
+      # too; on Windows it runs, and a difference in the skip count between the
+      # two jobs is the collision path being exercised.
+      #
+      - name: Test
+        run: dotnet test --no-build -c Release --verbosity normal
+
+  release:
+    needs: test
     runs-on: ubuntu-latest
 
     permissions:
@@ -81,19 +130,6 @@ jobs:
           dotnet build --no-restore -c Release
           -p:Version=${{ steps.version.outputs.version }}
           -p:RepositoryUrl=https://github.com/${{ github.repository }}
-
-      #
-      # The two corpus suites need an installed copy of the game to read BSAs
-      # from, which a runner has not, so they skip. Everything else runs against
-      # committed fixtures: the round trips, collision, skinning, constraints,
-      # particles and the whole FBX structure.
-      #
-      # MOPP generation also skips here. mopper.exe is copied to the output by
-      # its package but is a 32-bit Windows binary, and there is no Wine on the
-      # runner to put it through.
-      #
-      - name: Test
-        run: dotnet test --no-build -c Release --verbosity normal
 
       - name: Pack
         run: >
