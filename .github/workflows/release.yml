@@ -47,6 +47,12 @@ jobs:
 
     runs-on: ${{ matrix.os }}
 
+    # The dependencies are on GitHub Packages, and restoring them needs the token
+    # to carry a packages scope. Read is enough here: only the release job pushes.
+    permissions:
+      contents: read
+      packages: read
+
     steps:
       - uses: actions/checkout@v4
 
