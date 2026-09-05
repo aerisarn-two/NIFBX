@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>NIFBX.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+
+    <!--
+      Test-only. Two suites convert the game's own meshes, which means finding an
+      installed copy and reading its BSAs; they skip when there is none. The
+      library itself has no idea Skyrim is installed anywhere.
+    -->
+    <PackageReference Include="Mutagen.Bethesda.Skyrim" Version="0.51.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/NIFBX/NIFBX.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Resources/**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

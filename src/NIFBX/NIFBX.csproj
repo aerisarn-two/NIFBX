@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <RootNamespace>NIFBX</RootNamespace>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackageId>NIFBX</PackageId>
+    <Authors>Aerisarn</Authors>
+    <Description>Converts Bethesda NIF models to FBX and back: meshes, materials, skinning, animation, Havok collision, constraints and particle systems. Aims at a round trip that reproduces the file it started from rather than something that merely opens.</Description>
+    <PackageTags>nif;fbx;skyrim;bethesda;havok;collision;skinning;conversion;3d</PackageTags>
+    <PackageLicenseExpression>GPL-3.0-or-later</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/aerisarn-two/NIFBX</RepositoryUrl>
+
+    <!-- Overridden by the release workflow from the tag. -->
+    <Version>0.0.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The NIF itself: schema, item tree, both stream directions. -->
+    <PackageReference Include="NIFSharp" Version="1.0.1" />
+
+    <!-- The FBX as its raw node tree. The semantics above it are here, in Fbx/. -->
+    <PackageReference Include="LeanMeshIO" Version="1.0.2" />
+
+    <!--
+      Ships mopper.exe beside the build output. MOPP collision code cannot be
+      generated any other way: it is Havok's, and mopper is the only encoder.
+    -->
+    <PackageReference Include="Mopper.Native" Version="2.1.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="NIFBX.Tests" />
+  </ItemGroup>
+
+</Project>
