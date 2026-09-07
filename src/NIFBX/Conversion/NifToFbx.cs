@@ -1500,6 +1500,17 @@ namespace NIFBX.Conversion
         /// <summary>Marks a skinned shape that kept its geometry in itself as well.</summary>
         public const string ShapeKeepsGeometryProperty = "nif_shape_keeps_geometry";
 
+        /// <summary>Where a skinned shape's own transform rides.</summary>
+        /// <remarks>
+        /// An unskinned shape has its transform baked into its vertices and needs no
+        /// carrier. A skinned one is placed by its skin -- a cluster states where the
+        /// mesh stood at bind time, and the deformation it describes lands in the
+        /// world -- so the node above the mesh has to be left at the origin or the
+        /// placement happens twice. The NIF still states a transform on the shape, and
+        /// this is where it waits for the rebuild.
+        /// </remarks>
+        public const string ShapeTransformProperty = "nif_shape_transform";
+
         /// <summary>Whether the file gives this shape normals at all.</summary>
         /// <remarks>
         /// The two geometry families say it differently: a `BSTriShape` sets a bit in
@@ -1631,11 +1642,18 @@ namespace NIFBX.Conversion
             // straight to the scene root, so a holder node is interposed in both
             // cases. The _support suffix is what FBXWrangler uses and what the
             // import side looks for.
-            // A skinned shape keeps its transform rather than having it baked in, so the
-            // holder carries it (see BakedTransformOf).
+            // The holder is placed at the origin either way. An unskinned shape has had
+            // its transform baked into its vertices (see BakedTransformOf); a skinned
+            // one is placed by its skin, and its own transform is not part of that.
+            //
+            // The holder used to carry the skinned shape's transform, and it was
+            // applied twice. A cluster's matrices put a deformed vertex in the *world*,
+            // so a reader that then places the result under the mesh node moves it
+            // again: measured on nightingalebanneranim01, the NIF and the FBX agree on
+            // every vertex to a ten-thousandth taken as world, and are 290 units apart
+            // once the node's own (123.094, 72.363, -253.019) is applied on top.
             FbxObject holder = FbxMeshWriter.AddModel(
-                scene, $"{name}_support", "Mesh",
-                IsSkinned(shape) ? _model.GetTransform(shape) : NifTransform.Identity);
+                scene, $"{name}_support", "Mesh", NifTransform.Identity);
 
             if (parent is null)
                 scene.ConnectToRoot(holder);
@@ -1651,6 +1669,15 @@ namespace NIFBX.Conversion
                 Warnings.Add($"{name}: the source's vertices are not numbers, the mesh is exported as it is");
 
             FbxObject geometry = FbxMeshWriter.AddGeometry(scene, name, mesh);
+
+            // ...and the transform the node no longer carries, for the rebuild. It is a
+            // fact about the shape that FBX has nowhere to put once the mesh is placed
+            // by its skin, so it travels like the other such facts.
+            if (IsSkinned(shape) && _model.GetTransform(shape) is var placed
+                && !placed.Equals(NifTransform.Identity))
+            {
+                geometry.Properties.SetUserString(ShapeTransformProperty, FbxSkinIO.Matrix(placed));
+            }
 
             // Which geometry class this was. BSDynamicTriShape and BSTriShape hold the
             // same vertices and are not the same thing to the engine.

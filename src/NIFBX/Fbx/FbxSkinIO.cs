@@ -767,12 +767,12 @@ namespace NIFBX.Fbx
         }
 
         /// <summary>A transform as sixteen round-trippable numbers, for a property.</summary>
-        private static string Matrix(NifTransform transform) =>
+        internal static string Matrix(NifTransform transform) =>
             string.Join(",", ToMatrixArray(transform)
                 .Select(x => x.ToString("R", System.Globalization.CultureInfo.InvariantCulture)));
 
         /// <summary>The counterpart of <see cref="Matrix"/>, or the identity.</summary>
-        private static NifTransform ParseMatrix(string text)
+        internal static NifTransform ParseMatrix(string text)
         {
             string[] parts = text.Split(',');
 
