@@ -2397,6 +2397,11 @@ namespace NIFBX.Conversion
             header.Nodes.Add(new FbxNode("Creator", "se-cmd"));
             document.Nodes.Add(header);
 
+            // The SDK will not open a file without this. It is the same instant as the
+            // header's CreationTimeStamp, written again at the top level as a string,
+            // and nothing in the format's structure suggests a reader needs both.
+            document.Nodes.Add(new FbxNode("CreationTime", now.ToString("yyyy-MM-dd HH:mm:ss:fff")));
+
             document.Nodes.Add(new FbxNode("Creator", "se-cmd"));
 
             var settings = new FbxNode("GlobalSettings");
