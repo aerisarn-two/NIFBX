@@ -122,6 +122,22 @@ namespace NIFBX.Fbx
         /// </remarks>
         public const string SkeletonRootProperty = "nif_skeleton_root";
 
+        /// <summary>Where a bone's own NIF bind transform rides.</summary>
+        /// <remarks>
+        /// A cluster says the bind pose in FBX's terms -- the bone's placement in the
+        /// world and the mesh's, from which a reader derives everything else -- and
+        /// that is a decomposition, not a copy. `NiSkinData` states the product
+        /// directly and states it per bone, and on `nightingalebanneranim01` the seven
+        /// bones' products disagree with each other by a unit or so, which is the
+        /// file's own rounding and not something a single mesh transform can express.
+        ///
+        /// So the exact matrix travels beside the reconstructable one. A scene that
+        /// came from a NIF gets its own numbers back; a scene authored anywhere else
+        /// has no such property and is read from the cluster, which is what the
+        /// cluster is for.
+        /// </remarks>
+        public const string BoneBindProperty = "nif_bone_skin_transform";
+
         /// <summary>Where the skin's own bind transform rides.</summary>
         /// <remarks>
         /// `NiSkinData` carries one transform for the whole skin as well as one per
@@ -388,9 +404,26 @@ namespace NIFBX.Fbx
                 clusterNode.Nodes.Add(new FbxNode("Indexes", indices));
                 clusterNode.Nodes.Add(new FbxNode("Weights", weights));
 
-                // Transform is the mesh at bind time, TransformLink the bone.
-                clusterNode.Nodes.Add(new FbxNode("Transform", ToMatrixArray(meshTransform)));
-                clusterNode.Nodes.Add(new FbxNode("TransformLink", ToMatrixArray(bone.SkinTransform)));
+                // `TransformLink` is where the bone stands in the world at bind time and
+                // `Transform` where the mesh does; a reader takes a vertex into bone
+                // space with `Transform * TransformLink^-1`, and that product is what
+                // NiSkinData holds per bone.
+                //
+                // This used to write the product itself as `TransformLink`, with
+                // `Transform` the identity -- so the file said the bone's bind pose was
+                // the matrix that undoes it. Nothing here noticed, because the reader
+                // below took the same field straight back and the round trip closed on
+                // its own mistake. Every other program saw a mesh bound to a skeleton
+                // turned inside out: the animation played and the geometry was wrong.
+                NifTransform boneBind = FbxGlobalTransform.Of(scene, boneModel);
+
+                clusterNode.Nodes.Add(new FbxNode(
+                    "Transform", ToMatrixArray(bone.SkinTransform.ComposedWith(boneBind))));
+                clusterNode.Nodes.Add(new FbxNode("TransformLink", ToMatrixArray(boneBind)));
+
+                // And the product itself, exactly as the file states it. See
+                // BoneBindProperty.
+                cluster.Properties.SetUserString(BoneBindProperty, Matrix(bone.SkinTransform));
 
                 scene.Connect(cluster, skinObject);
                 scene.Connect(boneModel, cluster);
@@ -617,7 +650,7 @@ namespace NIFBX.Fbx
                 skin.Bones.Add(new SkinBone
                 {
                     Name = NameEncoding.Unsanitize(boneModel.Name),
-                    SkinTransform = FromMatrixArray(cluster.Child("TransformLink")),
+                    SkinTransform = BindOf(cluster),
                     DeclaredWeightCount = DeclaredWeightsOf(cluster),
                 });
             }
@@ -653,7 +686,7 @@ namespace NIFBX.Fbx
                     // fail to resolve is dropped whole, every Skyrim body part loses
                     // its skinning without anything failing.
                     Name = NameEncoding.Unsanitize(boneModel.Name),
-                    SkinTransform = FromMatrixArray(cluster.Child("TransformLink")),
+                    SkinTransform = BindOf(cluster),
                     DeclaredWeightCount = DeclaredWeightsOf(cluster),
                 };
 
@@ -704,6 +737,33 @@ namespace NIFBX.Fbx
                         skin.Bones[at].Weights.Add((vertex, (float)weights[i]));
                 }
             }
+        }
+
+        /// <summary>
+        /// A cluster's bind transform: what `NiSkinData` states for that bone.
+        /// </summary>
+        /// <remarks>
+        /// The property when the scene came from a NIF, since that is the file's own
+        /// number and a decomposition into two world transforms cannot always be put
+        /// back together to the last bit.
+        ///
+        /// Otherwise from the cluster, which is where a scene authored anywhere else
+        /// says it: `Transform` takes a vertex into the world at bind time and
+        /// `TransformLink` takes the bone there, so `Transform * TransformLink^-1`
+        /// takes the vertex into the bone. Reading `TransformLink` alone, as this did,
+        /// only ever agreed with this converter's own broken output.
+        /// </remarks>
+        private static NifTransform BindOf(FbxObject cluster)
+        {
+            if (cluster.Properties.GetString(BoneBindProperty) is { Length: > 0 } exact)
+                return ParseMatrix(exact);
+
+            NifTransform link = FromMatrixArray(cluster.Child("TransformLink"));
+            NifTransform mesh = FromMatrixArray(cluster.Child("Transform"));
+
+            return System.Numerics.Matrix4x4.Invert(link.ToMatrix(), out var inverted)
+                ? NifTransform.FromMatrix(mesh.ToMatrix() * inverted)
+                : mesh;
         }
 
         /// <summary>A transform as sixteen round-trippable numbers, for a property.</summary>
