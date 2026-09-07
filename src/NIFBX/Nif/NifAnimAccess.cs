@@ -857,7 +857,23 @@ namespace NIFBX.Nif
         private static void ReadRotations(NifModel model, NifItem data, AnimTrack track)
         {
             const uint XyzRotation = 4;
-            const float ToDegrees = 180f / MathF.PI;
+
+            // Negated, and in degrees. A NIF's per-axis rotation keys turn the opposite
+            // way from the angles a node's own matrix decomposes into: taken as they
+            // stand, an animation's first frame comes out mirroring the pose the node is
+            // saved in. Every animated node in the samples says so, and says it with the
+            // translation matching exactly, which is what makes it the rotation and not
+            // the pose -- lumbermill01waterwheel01's wheel is stored at -90 degrees
+            // about Z and its first key reads +90, dlc1protoswingingbridge's Bone01 at
+            // +16.40 about Y against -16.40, nightingalebanneranim01's cloth at +178.99
+            // against -178.99.
+            //
+            // A rotation matrix's transpose is its inverse, and for a single axis that
+            // is the angle negated. The axes travel as three independent channels with
+            // their own key times and cannot be composed into one matrix without
+            // resampling them onto a shared timeline, so the correction is applied per
+            // channel, which is exact for the one-axis rotations these keys hold.
+            const float ToDegrees = -180f / MathF.PI;
 
             // Which form it was in, so the writer can put it back in the same one.
             track.RotationType = model.GetUInt(data, "Rotation Type");

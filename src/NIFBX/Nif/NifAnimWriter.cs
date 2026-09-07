@@ -1496,19 +1496,25 @@ namespace NIFBX.Nif
                 NifItem keys = SizeGroup(model, group, string.Empty, curve.Keys.Count,
                     KeyTypeOf([curve]));
 
+                // Back the way they came: negated, as NifAnimAccess.ReadRotations
+                // explains, and in radians.
+                const float ToNifRadians = -ToRadians;
+
                 for (int i = 0; i < curve.Keys.Count && i < keys.Children.Count; i++)
                 {
                     model.FindItem(keys.Children[i], "Time")?.Value.SetFloat(curve.Keys[i].Time - offset);
-                    model.FindItem(keys.Children[i], "Value")?.Value.SetFloat(curve.Keys[i].Value * ToRadians);
+
+                    model.FindItem(keys.Children[i], "Value")?.Value
+                        .SetFloat(curve.Keys[i].Value * ToNifRadians);
 
                     WriteTbc(model, keys.Children[i], curve, curve.Keys[i].Time);
 
-                    // Back into radians with the value they belong to.
+                    // In radians with the value they belong to.
                     model.FindItem(keys.Children[i], "Forward")?.Value
-                        .SetFloat(curve.Keys[i].Forward * ToRadians);
+                        .SetFloat(curve.Keys[i].Forward * ToNifRadians);
 
                     model.FindItem(keys.Children[i], "Backward")?.Value
-                        .SetFloat(curve.Keys[i].Backward * ToRadians);
+                        .SetFloat(curve.Keys[i].Backward * ToNifRadians);
                 }
             }
         }
