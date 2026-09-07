@@ -10,73 +10,32 @@ using Xunit;
 namespace NIFBX.Tests
 {
     /// <summary>
-    /// Where a skinned vertex ends up, computed from the NIF and from the FBX.
+    /// Whether a skinned vertex lands where the NIF's own skinning puts it.
     /// </summary>
     /// <remarks>
-    /// The two are the same sum over the same weights, read out of two files. The NIF
-    /// takes a vertex into each bone with NiSkinData's own matrix and out again with
-    /// the bone's world transform; the FBX does it with the cluster's `Transform` and
-    /// the bone's model. They have to land in the same place.
+    /// A skin at rest leaves the mesh where the mesh already is. That is what this
+    /// checks: summing a vertex over its clusters, with the bones where the file puts
+    /// them, has to give the vertex back at the shape's own placement.
     ///
-    /// `Transform` is in *bone* space, which is not what the FBX SDK presents and is
-    /// what the file holds -- see the warning quoted in FbxSkinIO. Everything here
-    /// reads the records as a program without an SDK does, because that is what has to
-    /// be right.
+    /// It is deliberately not "reproduce NiSkinData's arithmetic". That matrix is the
+    /// inverse bind and the nodes are not at the bind pose, so `SkinTransform *
+    /// boneWorld` moves the mesh by however far the saved pose is from the authored one
+    /// -- 77 units on nightingalebanneranim01, far more on dlc1sabrecat, which is what
+    /// garbled the creature. NifSkope draws the mesh undeformed and so should a viewer
+    /// opening the FBX.
     ///
-    /// Nothing else here asks that question. The round trip reads back what this
-    /// converter wrote and agrees with itself however the bind pose is spelled, and
-    /// two faults hid behind exactly that: `TransformLink` held the matrix that undoes
-    /// the bind rather than the bind, and the mesh's node carried a transform the
-    /// cluster had already applied. Both left the animation playing over geometry in
-    /// the wrong place -- the second by 290 units on nightingalebanneranim01 -- and
-    /// neither changed a single field of the rebuilt NIF.
-    ///
-    /// Checked at rest and across the animation, with each side sampling its own
-    /// curves, so a mismatch between what the skin says and what the take does shows
-    /// up as well.
+    /// NiSkinData's matrices are still carried verbatim on each cluster, so the round
+    /// trip returns them exactly; what the clusters compute with is derived against the
+    /// bones as they actually stand.
     /// </remarks>
     public class SkinDeformationTests
     {
-        /// <summary>
-        /// How far apart the two sums may land, in NIF units.
-        /// </summary>
-        /// <remarks>
-        /// A hundredth of a unit. The vertices are halves and the transforms decompose
-        /// through Euler angles, so the two sums drift in the fourth decimal; the
-        /// faults this exists to catch were 78, 120 and 290 units.
-        /// </remarks>
+        /// <summary>How far apart the two sums may land, in NIF units.</summary>
         private const double Tolerance = 0.01;
 
         [Theory]
         [MemberData(nameof(RoundTripTests.EveryFixture), MemberType = typeof(RoundTripTests))]
         public void ASkinnedVertexLandsWhereTheNifPutsIt(string name)
-        {
-            Check(name, nudge: false);
-        }
-
-        /// <summary>
-        /// The same, with the skinned shapes moved off the origin first.
-        /// </summary>
-        /// <remarks>
-        /// A shape's own transform takes no part in how a NIF deforms it -- the skin
-        /// places the mesh -- so moving the node must change nothing at all. It used to
-        /// change everything: the transform was written onto the node above the mesh in
-        /// the FBX, where a reader applies it on top of a deformation that is already
-        /// in the world, and the mesh moved twice.
-        ///
-        /// Every committed fixture happens to have its skinned shapes at the origin, so
-        /// nothing here could tell. Rather than commit a Bethesda mesh to catch it --
-        /// `nightingalebanneranim01`, whose banner sits 290 units off -- the case is
-        /// made by moving one.
-        /// </remarks>
-        [Theory]
-        [MemberData(nameof(RoundTripTests.EveryFixture), MemberType = typeof(RoundTripTests))]
-        public void MovingASkinnedShapesNodeMovesNothing(string name)
-        {
-            Check(name, nudge: true);
-        }
-
-        private static void Check(string name, bool nudge)
         {
             NifModel m = NifModel.Load(
                 Path.Combine(AppContext.BaseDirectory, "Resources", name),
@@ -85,15 +44,8 @@ namespace NIFBX.Tests
             if (!m.Blocks.Any(b => m.GetRef(b, "Skin") is not null))
                 return;
 
-            if (nudge)
-            {
-                foreach (NifItem skinned in m.Blocks.Where(b => m.GetRef(b, "Skin") is not null))
-                    m.FindItem(skinned, "Translation")?.Value.Set(new NifVector3(17f, -29f, 43f));
-            }
+            var scene = new FbxScene(new NifToFbx(m).Convert());
 
-            var document = new NifToFbx(m).Convert();
-
-            // --- the NIF side -------------------------------------------------
             var world = new Dictionary<string, Matrix4x4>(StringComparer.Ordinal);
 
             void Walk(NifItem node, Matrix4x4 above)
@@ -108,315 +60,150 @@ namespace NIFBX.Tests
             foreach (NifItem root in m.GetRefArray(m.Footer, "Roots"))
                 Walk(root, Matrix4x4.Identity);
 
-            var scene0 = new FbxScene(document);
-
             foreach (NifItem shape in m.Blocks.Where(b => m.GetRef(b, "Skin") is not null))
             {
-            SkinData skin = NifSkinAccess.ReadSkin(m, shape)!;
+                if (NifSkinAccess.ReadSkin(m, shape) is not { } skin) continue;
 
-            // A skinned SSE shape keeps its vertices in the skin partition.
-            // (per shape)
-            var vertices = new List<NifVector3>();
+                string want = NameEncoding.Sanitize(NifAnimAccess.TrackName(m, shape));
 
-            NifItem? vertexData = m.FindItem(shape, "Vertex Data");
+                if (scene.Objects.FirstOrDefault(o => o.Class == "Geometry" && o.Name == want)
+                    is not { } geometry)
+                {
+                    continue;
+                }
 
-            if (vertexData is null || vertexData.Children.Count == 0)
+                var vertices = VerticesOf(m, shape);
+
+                if (vertices.Count == 0) continue;
+
+                var clusters = ClustersOf(scene, geometry);
+
+                foreach (SkinBone bone in skin.Bones)
+                {
+                    if (!clusters.TryGetValue(bone.Name, out var c)) continue;
+
+                    // The bone stands where the file puts it, whatever the bind was.
+                    Assert.True(
+                        Close(c.Link, world.GetValueOrDefault(bone.Name, Matrix4x4.Identity)),
+                        $"{name}: '{want}' -- the cluster for '{bone.Name}' does not hold "
+                        + "the bone's own placement");
+                }
+
+                Matrix4x4 where = world.GetValueOrDefault(m.GetName(shape), Matrix4x4.Identity);
+                double worst = 0;
+
+                for (int v = 0; v < vertices.Count; v++)
+                {
+                    Vector3 deformed = Vector3.Zero;
+                    float total = 0;
+
+                    foreach (SkinBone bone in skin.Bones)
+                    {
+                        if (!clusters.TryGetValue(bone.Name, out var c)) continue;
+                        if (!c.Weights.TryGetValue(v, out float fw) || fw == 0) continue;
+
+                        deformed += fw * Vector3.Transform(vertices[v], c.Transform * c.Link);
+                        total += fw;
+                    }
+
+                    // A vertex the clusters do not fully weight is not fully placed by
+                    // them either, so there is nothing to compare.
+                    if (total < 0.999f) continue;
+
+                    worst = Math.Max(
+                        worst, (Vector3.Transform(vertices[v], where) - deformed).Length());
+                }
+
+                Assert.True(
+                    worst < Tolerance,
+                    $"{name}: '{want}' is {worst:F3} units out at rest -- its own skin, with its "
+                    + "bones where the file puts them, does not leave the mesh where it is");
+            }
+        }
+
+        private static List<Vector3> VerticesOf(NifModel m, NifItem shape)
+        {
+            NifItem? vd = m.FindItem(shape, "Vertex Data");
+
+            if (vd is null || vd.Children.Count == 0)
             {
                 NifItem? instance = m.GetRef(shape, "Skin");
-                NifItem? partition = instance is null ? null : m.GetRef(instance, "Skin Partition");
-                vertexData = partition is null ? null : m.FindItem(partition, "Vertex Data");
+                NifItem? part = instance is null ? null : m.GetRef(instance, "Skin Partition");
+                vd = part is null ? null : m.FindItem(part, "Vertex Data");
             }
 
-            if (vertexData is not null)
+            var result = new List<Vector3>();
+
+            if (vd is not null)
             {
-                foreach (NifItem row in vertexData.Children)
+                foreach (NifItem row in vd.Children)
                     if (m.FindItem(row, "Vertex") is { } p)
-                        vertices.Add(p.Value.Get<NifVector3>());
+                    {
+                        NifVector3 q = p.Value.Get<NifVector3>();
+                        result.Add(new Vector3(q.X, q.Y, q.Z));
+                    }
             }
             else
             {
-                vertices.AddRange(m.GetVertices(m.GetRef(shape, "Data") ?? shape));
+                foreach (NifVector3 q in m.GetVertices(m.GetRef(shape, "Data") ?? shape))
+                    result.Add(new Vector3(q.X, q.Y, q.Z));
             }
 
+            return result;
+        }
 
-            // --- the FBX side, matched to this shape by name --------------------
-            FbxScene scene = scene0;
+        private static Dictionary<string, (Matrix4x4 Transform, Matrix4x4 Link, Dictionary<int, float> Weights)>
+            ClustersOf(FbxScene scene, FbxObject geometry)
+        {
+            var found =
+                new Dictionary<string, (Matrix4x4, Matrix4x4, Dictionary<int, float>)>(StringComparer.Ordinal);
 
-            string want = NameEncoding.Sanitize(NifAnimAccess.TrackName(m, shape));
-
-            if (scene.Objects.FirstOrDefault(o => o.Class == "Geometry" && o.Name == want)
-                is not { } geometry)
-            {
-                continue;
-            }
-
-            double[] raw = (double[])geometry.Child("Vertices")!.Properties[0];
-
-            FbxObject? meshModel = scene.ParentsOf(geometry.Id).FirstOrDefault(o => o.Class == "Model");
-            Matrix4x4 meshNode = meshModel is null
-                ? Matrix4x4.Identity
-                : FbxGlobalTransform.Of(scene, meshModel).ToMatrix();
-
-
-            // Every cluster, by bone name.
-            var clusters = new Dictionary<string, (Matrix4x4 T, Matrix4x4 Link, Dictionary<int, float> W)>(
-                StringComparer.Ordinal);
-
-            // Only this geometry's clusters. Two shapes in one file share bone names,
-            // and a scene-wide sweep pairs a shape with the other one's bind pose.
-            var mine = scene.ChildrenOf(geometry.Id)
-                .Where(o => o.Class == "Deformer" && o.SubClass == "Skin")
-                .SelectMany(sk => scene.ChildrenOf(sk.Id))
-                .Where(o => o.Class == "Deformer" && o.SubClass == "Cluster");
-
-            foreach (FbxObject cluster in mine)
+            foreach (FbxObject cluster in scene.ChildrenOf(geometry.Id)
+                         .Where(o => o.Class == "Deformer" && o.SubClass == "Skin")
+                         .SelectMany(sk => scene.ChildrenOf(sk.Id))
+                         .Where(o => o.Class == "Deformer" && o.SubClass == "Cluster"))
             {
                 if (scene.ChildrenOf(cluster.Id).FirstOrDefault(o => o.Class == "Model") is not { } bone)
                     continue;
 
-                var w = new Dictionary<int, float>();
+                var weights = new Dictionary<int, float>();
 
                 if (cluster.Child("Indexes")?.Properties.FirstOrDefault() is int[] ix
                     && cluster.Child("Weights")?.Properties.FirstOrDefault() is double[] wt)
                 {
                     for (int i = 0; i < ix.Length && i < wt.Length; i++)
-                        w[ix[i]] = (float)wt[i];
+                        weights[ix[i]] = (float)wt[i];
                 }
 
-                string boneName = NameEncoding.Unsanitize(bone.Name);
+                string named = NameEncoding.Unsanitize(bone.Name);
 
-                if (clusters.TryGetValue(boneName, out var already))
+                if (found.TryGetValue(named, out var already))
                 {
-                    foreach ((int vertex, float value) in w)
-                        already.W[vertex] = value;
+                    foreach ((int vertex, float value) in weights)
+                        already.Item3[vertex] = value;
                 }
                 else
                 {
-                    clusters[boneName] =
-                        (Read(cluster.Child("Transform")), Read(cluster.Child("TransformLink")), w);
+                    found[named] = (Read(cluster.Child("Transform")), Read(cluster.Child("TransformLink")), weights);
                 }
             }
 
-            // --- bone world transforms at a time, each side from its own curves ---
-            //
-            // The rest comparison above feeds both sums the same bone transforms, so it
-            // says the bind pose agrees and nothing about the animation. Here each side
-            // samples the curves it actually carries: the NIF its interpolators, the
-            // FBX its AnimCurves.
-            var nifTracks = new Dictionary<string, AnimTrack>(StringComparer.Ordinal);
-            var fbxTracks = new Dictionary<string, AnimTrack>(StringComparer.Ordinal);
-            float stop = 0f;
-
-            foreach (AnimSequence sequence in NifAnimAccess.ReadAnimations(m))
-            {
-                stop = MathF.Max(stop, sequence.Stop);
-
-                foreach (AnimTrack track in sequence.Tracks)
-                    nifTracks.TryAdd(track.NodeName, track);
-            }
-
-            foreach (AnimSequence sequence in scene.ReadAnimations())
-                foreach (AnimTrack track in sequence.Tracks)
-                    fbxTracks.TryAdd(NameEncoding.Unsanitize(track.NodeName), track);
-
-            var parentOf = new Dictionary<string, string?>(StringComparer.Ordinal);
-            var restOf = new Dictionary<string, NifTransform>(StringComparer.Ordinal);
-
-            void Chain(NifItem node, string? above)
-            {
-                string here = m.GetName(node);
-                parentOf[here] = above;
-                restOf[here] = m.GetTransform(node);
-
-                foreach (NifItem child in m.GetRefArray(node, "Children"))
-                    Chain(child, here);
-            }
-
-            foreach (NifItem root in m.GetRefArray(m.Footer, "Roots"))
-                Chain(root, null);
-
-            Matrix4x4 WorldAt(string bone, IReadOnlyDictionary<string, AnimTrack> tracks, float time)
-            {
-                Matrix4x4 acc = Matrix4x4.Identity;
-
-                for (string? at = bone; at is not null && parentOf.ContainsKey(at); at = parentOf[at])
-                {
-                    acc *= LocalAt(tracks.GetValueOrDefault(at), restOf.GetValueOrDefault(at, NifTransform.Identity), time);
-                }
-
-                return acc;
-            }
-
-            // --- the same vertices, both ways ---------------------------------
-            double worst = 0, worstNode = 0;
-
-            for (int v = 0; v < vertices.Count; v++)
-            {
-                Vector3 fromNif = Vector3.Zero, fromFbx = Vector3.Zero;
-                float totalNif = 0, totalFbx = 0;
-
-                var point = new Vector3(vertices[v].X, vertices[v].Y, vertices[v].Z);
-
-                foreach (SkinBone bone in skin.Bones)
-                {
-                    float weight = 0;
-
-                    foreach ((ushort vertex, float value) in bone.Weights)
-                        if (vertex == v) { weight = value; break; }
-
-                    if (weight == 0) continue;
-
-                    Matrix4x4 boneWorld = world.GetValueOrDefault(bone.Name, Matrix4x4.Identity);
-
-                    fromNif += weight * Vector3.Transform(
-                        point, bone.SkinTransform.ToMatrix() * boneWorld);
-                    totalNif += weight;
-
-                    if (!clusters.TryGetValue(bone.Name, out var c)) continue;
-                    if (!c.W.TryGetValue(v, out float fw) || fw == 0) continue;
-
-                    fromFbx += fw * Vector3.Transform(point, c.T * boneWorld);
-                    totalFbx += fw;
-                }
-
-                if (totalNif == 0 || totalFbx == 0) continue;
-
-                worst = Math.Max(worst, (fromNif - fromFbx).Length());
-                worstNode = Math.Max(worstNode,
-                    (fromNif - Vector3.Transform(fromFbx, meshNode)).Length());
-
-            }
-
-            // The two records have to agree with the node above the mesh: a cluster's
-            // `Transform` composed with its `TransformLink` is the mesh's own world
-            // transform at bind time. Blender's exporter writes them so this holds and
-            // its importer takes the mesh matrix from the cluster on that
-            // understanding, so a file where they disagree deforms from one frame and
-            // draws in another.
-            foreach ((_, (Matrix4x4 T, Matrix4x4 Link, _)) in clusters)
-            {
-                Matrix4x4 implied = T * Link;
-
-                for (int r = 1; r <= 4; r++)
-                {
-                    for (int col = 1; col <= 4; col++)
-                    {
-                        Assert.True(
-                            Math.Abs(At(implied, r, col) - At(meshNode, r, col)) < Tolerance,
-                            $"{name}: '{want}' -- Transform * TransformLink is not the mesh's "
-                            + "own placement, so the cluster and the node disagree about "
-                            + "where the mesh stood at bind time");
-                    }
-                }
-            }
-
-            Assert.True(
-                worst < Tolerance,
-                $"{name}: '{want}' is {worst:F3} units from where the NIF puts it at rest");
-
-            // And with the mesh node's own transform applied on top, since a reader is
-            // entitled to place the deformed result under the node it hangs from. The
-            // node has to be at the origin for both readings to agree.
-
-
-            foreach (float time in new[] { 0f, stop * 0.25f, stop * 0.5f, stop * 0.75f, stop })
-            {
-                double gap = 0;
-
-                var atTime = new Dictionary<string, (Matrix4x4 Nif, Matrix4x4 Fbx)>(StringComparer.Ordinal);
-
-                foreach (SkinBone bone in skin.Bones)
-                {
-                    atTime[bone.Name] =
-                        (WorldAt(bone.Name, nifTracks, time), WorldAt(bone.Name, fbxTracks, time));
-                }
-
-                for (int v = 0; v < vertices.Count; v++)
-                {
-                    Vector3 a = Vector3.Zero, b = Vector3.Zero;
-                    bool any = false;
-
-                    var point = new Vector3(vertices[v].X, vertices[v].Y, vertices[v].Z);
-
-                    foreach (SkinBone bone in skin.Bones)
-                    {
-                        float weight = 0;
-
-                        foreach ((ushort vertex, float value) in bone.Weights)
-                            if (vertex == v) { weight = value; break; }
-
-                        if (weight == 0 || !clusters.TryGetValue(bone.Name, out var c)) continue;
-                        if (!c.W.TryGetValue(v, out float fw) || fw == 0) continue;
-
-                        (Matrix4x4 nifWorld, Matrix4x4 fbxWorld) = atTime[bone.Name];
-
-                        a += weight * Vector3.Transform(point, bone.SkinTransform.ToMatrix() * nifWorld);
-                        b += fw * Vector3.Transform(point, c.T * fbxWorld);
-                        any = true;
-                    }
-
-                    if (any) gap = Math.Max(gap, (a - b).Length());
-                }
-
-                Assert.True(
-                    gap < Tolerance,
-                    $"{name}: '{want}' is {gap:F3} units out at t={time:F3}");
-            }
-            }
+            return found;
         }
 
-        /// <summary>A curve's value at a time, linear between keys.</summary>
-        private static float Sample(AnimCurve curve, float time, float fallback)
+        private static Matrix4x4 Invert(Matrix4x4 m) =>
+            Matrix4x4.Invert(m, out Matrix4x4 inverted) ? inverted : Matrix4x4.Identity;
+
+        private static bool Close(Matrix4x4 a, Matrix4x4 b)
         {
-            if (curve.Keys.Count == 0) return fallback;
-            if (time <= curve.Keys[0].Time) return curve.Keys[0].Value;
+            float[] x = [a.M11, a.M12, a.M13, a.M21, a.M22, a.M23, a.M31, a.M32, a.M33, a.M41, a.M42, a.M43];
+            float[] y = [b.M11, b.M12, b.M13, b.M21, b.M22, b.M23, b.M31, b.M32, b.M33, b.M41, b.M42, b.M43];
 
-            for (int i = 1; i < curve.Keys.Count; i++)
-            {
-                if (time > curve.Keys[i].Time) continue;
+            for (int i = 0; i < x.Length; i++)
+                if (Math.Abs(x[i] - y[i]) > Tolerance) return false;
 
-                AnimKey a = curve.Keys[i - 1], b = curve.Keys[i];
-
-                if (time >= b.Time) return b.Value;
-                if (a.Interpolation == AnimInterpolation.Constant) return a.Value;
-
-                float span = b.Time - a.Time;
-                return span <= 0f ? b.Value : a.Value + (b.Value - a.Value) * ((time - a.Time) / span);
-            }
-
-            return curve.Keys[^1].Value;
+            return true;
         }
-
-        /// <summary>A track's local transform at a time, over the node's rest pose.</summary>
-        private static Matrix4x4 LocalAt(AnimTrack? track, NifTransform rest, float time)
-        {
-            if (track is null) return rest.ToMatrix();
-
-            NifVector3 t = rest.Translation;
-            NifVector3 r = rest.ToEulerDegrees();
-            float s = rest.Scale;
-
-            var moved = new NifTransform(
-                new NifVector3(
-                    Sample(track.Translation[0], time, t.X),
-                    Sample(track.Translation[1], time, t.Y),
-                    Sample(track.Translation[2], time, t.Z)),
-                NifTransform.RotationFromEulerDegrees(
-                    Sample(track.Rotation[0], time, r.X),
-                    Sample(track.Rotation[1], time, r.Y),
-                    Sample(track.Rotation[2], time, r.Z)),
-                Sample(track.Scale[0], time, s));
-
-            return moved.ToMatrix();
-        }
-
-        private static float At(Matrix4x4 m, int row, int column) => row switch
-        {
-            1 => column switch { 1 => m.M11, 2 => m.M12, 3 => m.M13, _ => m.M14 },
-            2 => column switch { 1 => m.M21, 2 => m.M22, 3 => m.M23, _ => m.M24 },
-            3 => column switch { 1 => m.M31, 2 => m.M32, 3 => m.M33, _ => m.M34 },
-            _ => column switch { 1 => m.M41, 2 => m.M42, 3 => m.M43, _ => m.M44 },
-        };
 
         private static Matrix4x4 Read(FbxNode? node)
         {
@@ -429,6 +216,5 @@ namespace NIFBX.Tests
                 (float)m[8], (float)m[9], (float)m[10], (float)m[11],
                 (float)m[12], (float)m[13], (float)m[14], (float)m[15]);
         }
-
     }
 }

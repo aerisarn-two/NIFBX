@@ -1500,15 +1500,6 @@ namespace NIFBX.Conversion
         /// <summary>Marks a skinned shape that kept its geometry in itself as well.</summary>
         public const string ShapeKeepsGeometryProperty = "nif_shape_keeps_geometry";
 
-        /// <summary>Where a skinned shape's own transform rides.</summary>
-        /// <remarks>
-        /// A skinned shape is placed by its skin, not by its node, and the two are not
-        /// the same thing: the node above the mesh has to say where the skin puts it or
-        /// the file declares a bind pose the skeleton is not in. So the shape's own
-        /// transform, which takes no part in how a NIF deforms it, waits here for the
-        /// rebuild.
-        /// </remarks>
-        public const string ShapeTransformProperty = "nif_shape_transform";
         /// <summary>Whether the file gives this shape normals at all.</summary>
         /// <remarks>
         /// The two geometry families say it differently: a `BSTriShape` sets a bit in
@@ -1661,19 +1652,6 @@ namespace NIFBX.Conversion
                 Warnings.Add($"{name}: the source's vertices are not numbers, the mesh is exported as it is");
 
             FbxObject geometry = FbxMeshWriter.AddGeometry(scene, name, mesh);
-
-            // The node above a skinned mesh is moved to where the skin places it (see
-            // FbxSkinIO), so the shape's own transform travels instead.
-            // Written whenever the shape is skinned, the identity included: the node no
-            // longer holds the shape's transform, so leaving the property off does not
-            // mean "identity", it means "read the node" -- and the node says where the
-            // skin put the mesh. TestNifFile_LooseBlocks_SE has a skinned shape at the
-            // identity and got the skin's placement back instead.
-            if (IsSkinned(shape))
-            {
-                geometry.Properties.SetUserString(
-                    ShapeTransformProperty, FbxSkinIO.Matrix(_model.GetTransform(shape)));
-            }
 
             // Which geometry class this was. BSDynamicTriShape and BSTriShape hold the
             // same vertices and are not the same thing to the engine.

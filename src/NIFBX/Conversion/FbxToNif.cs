@@ -2593,11 +2593,6 @@ namespace NIFBX.Conversion
             // once the reader has decided what the vertices are.
             SkinData? skin = FbxSkinIO.ReadSkin(_scene, geometry);
 
-            // A skinned shape's node stands where its skin places it, not where the
-            // shape did, so the shape's own transform came across as a property.
-            if (geometry.Properties.GetString(NifToFbx.ShapeTransformProperty) is { Length: > 0 } placed)
-                transform = FbxSkinIO.ParseMatrix(placed);
-
             readerOptions.Influences = InfluenceSignatures(skin);
             readerOptions.Partitions = PartitionSignatures(skin);
 
