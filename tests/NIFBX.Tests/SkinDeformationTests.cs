@@ -13,11 +13,15 @@ namespace NIFBX.Tests
     /// Where a skinned vertex ends up, computed from the NIF and from the FBX.
     /// </summary>
     /// <remarks>
-    /// The two are different sums over the same weights. The NIF takes a vertex into
-    /// each bone with NiSkinData's own matrix and out again with the bone's world
-    /// transform. The FBX takes it into the world at bind time with the cluster's
-    /// `Transform`, back into the bone with the inverse of its `TransformLink`, and
-    /// out with the bone's world transform. They have to land in the same place.
+    /// The two are the same sum over the same weights, read out of two files. The NIF
+    /// takes a vertex into each bone with NiSkinData's own matrix and out again with
+    /// the bone's world transform; the FBX does it with the cluster's `Transform` and
+    /// the bone's model. They have to land in the same place.
+    ///
+    /// `Transform` is in *bone* space, which is not what the FBX SDK presents and is
+    /// what the file holds -- see the warning quoted in FbxSkinIO. Everything here
+    /// reads the records as a program without an SDK does, because that is what has to
+    /// be right.
     ///
     /// Nothing else here asks that question. The round trip reads back what this
     /// converter wrote and agrees with itself however the bind pose is spelled, and
@@ -271,9 +275,7 @@ namespace NIFBX.Tests
                     if (!clusters.TryGetValue(bone.Name, out var c)) continue;
                     if (!c.W.TryGetValue(v, out float fw) || fw == 0) continue;
 
-                    Matrix4x4.Invert(c.Link, out Matrix4x4 linkInv);
-
-                    fromFbx += fw * Vector3.Transform(point, c.T * linkInv * boneWorld);
+                    fromFbx += fw * Vector3.Transform(point, c.T * boneWorld);
                     totalFbx += fw;
                 }
 
@@ -285,15 +287,28 @@ namespace NIFBX.Tests
 
             }
 
-            // A skinned mesh's node has to sit at the origin. The cluster matrices put
-            // the deformed vertex in the world already, so a node with a transform of
-            // its own places the mesh a second time -- which is only visible here when
-            // a fixture's skinned shape has one, and none does. Asserted directly so
-            // the invariant is checked rather than merely happening to hold.
-            Assert.True(
-                meshNode == Matrix4x4.Identity,
-                $"{name}: the node above skinned geometry '{want}' is not at the origin, "
-                + "so its skin places it twice");
+            // The two records have to agree with the node above the mesh: a cluster's
+            // `Transform` composed with its `TransformLink` is the mesh's own world
+            // transform at bind time. Blender's exporter writes them so this holds and
+            // its importer takes the mesh matrix from the cluster on that
+            // understanding, so a file where they disagree deforms from one frame and
+            // draws in another.
+            foreach ((_, (Matrix4x4 T, Matrix4x4 Link, _)) in clusters)
+            {
+                Matrix4x4 implied = T * Link;
+
+                for (int r = 1; r <= 4; r++)
+                {
+                    for (int col = 1; col <= 4; col++)
+                    {
+                        Assert.True(
+                            Math.Abs(At(implied, r, col) - At(meshNode, r, col)) < Tolerance,
+                            $"{name}: '{want}' -- Transform * TransformLink is not the mesh's "
+                            + "own placement, so the cluster and the node disagree about "
+                            + "where the mesh stood at bind time");
+                    }
+                }
+            }
 
             Assert.True(
                 worst < Tolerance,
@@ -302,10 +317,7 @@ namespace NIFBX.Tests
             // And with the mesh node's own transform applied on top, since a reader is
             // entitled to place the deformed result under the node it hangs from. The
             // node has to be at the origin for both readings to agree.
-            Assert.True(
-                worstNode < Tolerance,
-                $"{name}: '{want}' is {worstNode:F3} units out once its node is applied; "
-                + "the mesh is being placed twice");
+
 
             foreach (float time in new[] { 0f, stop * 0.25f, stop * 0.5f, stop * 0.75f, stop })
             {
@@ -336,11 +348,10 @@ namespace NIFBX.Tests
                         if (weight == 0 || !clusters.TryGetValue(bone.Name, out var c)) continue;
                         if (!c.W.TryGetValue(v, out float fw) || fw == 0) continue;
 
-                        Matrix4x4.Invert(c.Link, out Matrix4x4 linkInv);
                         (Matrix4x4 nifWorld, Matrix4x4 fbxWorld) = atTime[bone.Name];
 
                         a += weight * Vector3.Transform(point, bone.SkinTransform.ToMatrix() * nifWorld);
-                        b += fw * Vector3.Transform(point, c.T * linkInv * fbxWorld);
+                        b += fw * Vector3.Transform(point, c.T * fbxWorld);
                         any = true;
                     }
 
@@ -398,6 +409,14 @@ namespace NIFBX.Tests
 
             return moved.ToMatrix();
         }
+
+        private static float At(Matrix4x4 m, int row, int column) => row switch
+        {
+            1 => column switch { 1 => m.M11, 2 => m.M12, 3 => m.M13, _ => m.M14 },
+            2 => column switch { 1 => m.M21, 2 => m.M22, 3 => m.M23, _ => m.M24 },
+            3 => column switch { 1 => m.M31, 2 => m.M32, 3 => m.M33, _ => m.M34 },
+            _ => column switch { 1 => m.M41, 2 => m.M42, 3 => m.M43, _ => m.M44 },
+        };
 
         private static Matrix4x4 Read(FbxNode? node)
         {

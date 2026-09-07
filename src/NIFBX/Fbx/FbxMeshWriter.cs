@@ -340,6 +340,21 @@ namespace NIFBX.Fbx
         /// "Mesh" for a node carrying geometry, "Null" for a plain transform,
         /// "LimbNode" for a skeleton joint.
         /// </param>
+        /// <summary>Rewrites a model's placement, keeping everything else about it.</summary>
+        public static void SetTransform(FbxObject model, NifTransform transform)
+        {
+            NifVector3 t = transform.Translation;
+            NifVector3 r = transform.ToEulerDegrees();
+            float s = transform.Scale;
+
+            model.Properties.Set("Lcl Translation", "Lcl Translation", "", "A+",
+                (double)t.X, (double)t.Y, (double)t.Z);
+            model.Properties.Set("Lcl Rotation", "Lcl Rotation", "", "A+",
+                (double)r.X, (double)r.Y, (double)r.Z);
+            model.Properties.Set("Lcl Scaling", "Lcl Scaling", "", "A+",
+                (double)s, (double)s, (double)s);
+        }
+
         public static FbxObject AddModel(FbxScene scene, string name, string subClass, NifTransform transform)
         {
             FbxObject model = scene.AddObject("Model", name, subClass);
