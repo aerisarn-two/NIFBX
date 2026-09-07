@@ -918,7 +918,7 @@ namespace NIFBX.Tests
             /// and hold the same geometry at half precision, one entry per vertex, in
             /// the same order (§5A). So entry *i* answers to `Vertex Data[i]`.
             /// </remarks>
-            private NifVector3? ParticleSource(NifItem item)
+            private NifItem? ParticleSource(NifItem item)
             {
                 if (item.Name is not ("Particle Vertices" or "Particle Normals"))
                     return null;
@@ -936,9 +936,7 @@ namespace NIFBX.Tests
 
                 string field = item.Name == "Particle Vertices" ? "Vertex" : "Normal";
 
-                return left.FindItem(vertices.Children[at], field) is { } source
-                    ? source.Value.Get<NifVector3>()
-                    : null;
+                return left.FindItem(vertices.Children[at], field);
             }
 
             private bool BakedTransformExplains(NifItem a, NifItem b)
@@ -1001,8 +999,22 @@ namespace NIFBX.Tests
                 // digit for no reason either side could fix. Taking the source's own
                 // vertex -- the full-precision one the copy came from -- rounds once on
                 // each side and lands exactly.
-                NifVector3 from = ParticleSource(a) ?? a.Value.Get<NifVector3>();
+                NifItem? copied = ParticleSource(a);
+                NifVector3 from = copied?.Value.Get<NifVector3>() ?? a.Value.Get<NifVector3>();
                 NifVector3 expected = position ? transform.Apply(from) : transform.ApplyDirection(from);
+
+                // A particle copy is written out of the shape's own vertex buffer, so it
+                // carries that field's encoding before it carries its own. A position
+                // comes from a `Vector3` and loses nothing on the way; a normal comes
+                // from a `ByteVector3` and is already three bytes wide by the time it is
+                // rounded to halves. Rounding once, straight to halves, expected a
+                // precision the copy never had.
+                if (copied is not null && copied.Value.Type != b.Value.Type)
+                {
+                    var carried = new NifValue(copied.Value.Type);
+                    carried.Set(expected);
+                    expected = carried.Get<NifVector3>();
+                }
 
                 // Put the turned vector through the same encoding before comparing, so a
                 // byte-quantised field is judged on the bytes it would actually be
@@ -1325,8 +1337,13 @@ namespace NIFBX.Tests
                 }
 
                 // Stating nothing is stating zero.
+                //
+                // The partition states its weights as full floats and the buffer holds
+                // halves, so the comparison is made in halves: a partition weight that
+                // sits between two of them is written as one of the two, and asking for
+                // the float back would fail on the half the format could not avoid.
                 return PartitionWeightsOf(data).TryGetValue((bone, (uint)vertex), out float weight)
-                    ? Close(weight, theirs.Value.ToFloat())
+                    ? AsStoredBy(theirs, weight) == theirs.Value.ToFloat()
                     : theirs.Value.ToFloat() == 0f;
             }
 
@@ -1955,6 +1972,23 @@ namespace NIFBX.Tests
 
             private static string[] Split(string text) =>
                 text.Split([' ', ',', '(', ')', '[', ']', ';'], StringSplitOptions.RemoveEmptyEntries);
+
+            /// <summary>
+            /// A float as the field that is to hold it would store it.
+            /// </summary>
+            /// <remarks>
+            /// The vertex buffer's weights are halves and its normals are bytes, so a
+            /// value derived from somewhere with more precision has to be narrowed
+            /// before it can be compared with one that has already been through the
+            /// field. The same rule as everywhere else here: compare against the
+            /// transformation's output, not its input.
+            /// </remarks>
+            private static float AsStoredBy(NifItem field, float value)
+            {
+                var encoded = new NifValue(field.Value.Type);
+                encoded.SetFloat(value);
+                return encoded.ToFloat();
+            }
 
             private static bool Close(float x, float y)
             {
