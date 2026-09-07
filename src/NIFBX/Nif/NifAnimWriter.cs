@@ -1509,12 +1509,14 @@ namespace NIFBX.Nif
 
                     WriteTbc(model, keys.Children[i], curve, curve.Keys[i].Time);
 
-                    // In radians with the value they belong to.
+                    // In radians with the value they belong to, and swapped back: a
+                    // NIF's `Forward` is the tangent arriving at a key and its
+                    // `Backward` the one leaving. See NifAnimAccess.ReadRotations.
                     model.FindItem(keys.Children[i], "Forward")?.Value
-                        .SetFloat(curve.Keys[i].Forward * ToNifRadians);
+                        .SetFloat(curve.Keys[i].Backward * ToNifRadians);
 
                     model.FindItem(keys.Children[i], "Backward")?.Value
-                        .SetFloat(curve.Keys[i].Backward * ToNifRadians);
+                        .SetFloat(curve.Keys[i].Forward * ToNifRadians);
                 }
             }
         }
@@ -1668,8 +1670,11 @@ namespace NIFBX.Nif
                     if (source.Time != time)
                         continue;
 
-                    ahead[axis] = source.Forward;
-                    behind[axis] = source.Backward;
+                    // Swapped back: a NIF's `Forward` is the tangent arriving at a key
+                    // and its `Backward` the one leaving. See
+                    // NifAnimAccess.ReadRotations.
+                    ahead[axis] = source.Backward;
+                    behind[axis] = source.Forward;
                     found = true;
                     break;
                 }

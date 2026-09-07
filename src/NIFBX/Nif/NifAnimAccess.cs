@@ -742,8 +742,9 @@ namespace NIFBX.Nif
                         {
                             Handles = form,
                             Tbc = TbcOf(model, key),
-                            Forward = ScalarOf(model, key, "Forward"),
-                            Backward = ScalarOf(model, key, "Backward"),
+                            // Swapped; see ReadRotations.
+                            Forward = ScalarOf(model, key, "Backward"),
+                            Backward = ScalarOf(model, key, "Forward"),
                         });
                 }
             }
@@ -902,8 +903,17 @@ namespace NIFBX.Nif
                             // In degrees, as the value beside them is. A tangent is a
                             // value per unit of the parameter, so it scales with the
                             // value and not with the time.
-                            Forward = ScalarOf(model, key, "Forward") * ToDegrees,
-                            Backward = ScalarOf(model, key, "Backward") * ToDegrees,
+                            // Swapped. A NIF names these for the key they belong to,
+                            // not for the segment they shape: the tangent leaving a key
+                            // is its `Backward` and the one arriving is its `Forward`.
+                            // lumbermill01waterwheel01 says so exactly -- its wheel turns
+                            // -2pi over one interval and states -2pi in key 0's Backward
+                            // and key 1's Forward, which are the two ends of that segment,
+                            // leaving zero in the slots that shape nothing. Read the other
+                            // way round the wheel eases out of rest and back into it every
+                            // sixteen seconds, and a millrace does not.
+                            Forward = ScalarOf(model, key, "Backward") * ToDegrees,
+                            Backward = ScalarOf(model, key, "Forward") * ToDegrees,
                         });
                     }
                 }
@@ -949,8 +959,9 @@ namespace NIFBX.Nif
                     {
                         Handles = form,
                             Tbc = TbcOf(model, key),
-                        Forward = ScalarOf(model, key, "Forward"),
-                        Backward = ScalarOf(model, key, "Backward"),
+                        // Swapped; see ReadRotations.
+                        Forward = ScalarOf(model, key, "Backward"),
+                        Backward = ScalarOf(model, key, "Forward"),
                     });
             }
         }
@@ -961,8 +972,9 @@ namespace NIFBX.Nif
 
         /// <summary>Both of a key's tangents, for a key whose value is a vector.</summary>
         private static (NifVector3 Forward, NifVector3 Backward) VectorTangentsOf(NifModel model, NifItem key) =>
-            (model.FindItem(key, "Forward")?.Value.Get<NifVector3>() ?? new NifVector3(),
-             model.FindItem(key, "Backward")?.Value.Get<NifVector3>() ?? new NifVector3());
+            // Swapped; see ReadRotations.
+            (model.FindItem(key, "Backward")?.Value.Get<NifVector3>() ?? new NifVector3(),
+             model.FindItem(key, "Forward")?.Value.Get<NifVector3>() ?? new NifVector3());
 
         /// <summary>A key's tension, bias and continuity, or zero when it has none.</summary>
         private static NifVector3 TbcOf(NifModel model, NifItem key) =>
