@@ -183,6 +183,9 @@ namespace NIFBX.Fbx
             if (scene.ParentsOf(geometry.Id).FirstOrDefault(o => o.Class == "Model") is { } holder)
                 meshTransform = FbxGlobalTransform.Of(scene, holder);
 
+            foreach (SkinBone bone in skin.Bones)
+                if (bones.TryGetValue(bone.Name, out FbxObject? boneModel))
+                    MarkAsLimb(scene, boneModel);
 
             // One skin deformer per partition, which is how FBX says this and how
             // ck-cmd says it too: it counts a mesh's skin deformers to get the
@@ -211,6 +214,35 @@ namespace NIFBX.Fbx
                 AddOnePartition(scene, geometry, skin, bones, meshTransform, p, count, mapped, problems);
 
             return problems;
+        }
+
+        /// <summary>
+        /// Says, in the file, that a node is a bone.
+        /// </summary>
+        /// <remarks>
+        /// A NIF's bones are ordinary nodes and nothing distinguishes them; FBX says it
+        /// twice, in a model's subclass and in a `NodeAttribute` carrying `TypeFlags:
+        /// Skeleton`. Every node here went out as `Model::Null` with no attribute, so
+        /// nothing in the file said which nodes were bones -- an importer takes those
+        /// for plain transforms, builds no skeleton, and a mesh whose clusters name
+        /// them has nothing to deform against.
+        ///
+        /// The name on the attribute is left empty, as Autodesk writes it: the model
+        /// carries the name.
+        ///
+        /// Which nodes are bones is known only once the skins are read, which is why
+        /// this happens here rather than where the node was built.
+        /// </remarks>
+        private static void MarkAsLimb(FbxScene scene, FbxObject model)
+        {
+            if (model.SubClass == "LimbNode")
+                return;
+
+            model.SubClass = "LimbNode";
+
+            FbxObject attribute = scene.AddObject("NodeAttribute", string.Empty, "LimbNode");
+            attribute.Node.Nodes.Add(new FbxNode("TypeFlags", "Skeleton"));
+            scene.Connect(attribute, model);
         }
 
         /// <summary>Writes one partition as a skin deformer and its clusters.</summary>
