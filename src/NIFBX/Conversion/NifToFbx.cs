@@ -1827,61 +1827,6 @@ namespace NIFBX.Conversion
                 _pendingSkins.Add((shape, geometry));
         }
 
-        /// <summary>
-        /// The local transform each animated node opens its animation on.
-        /// </summary>
-        /// <remarks>
-        /// A skin's bind pose is not on the nodes -- they hold whatever pose the file
-        /// was saved in -- but where the bones are animated it is the pose the animation
-        /// opens on. Built once and handed to every skin, since a bone may be shared.
-        ///
-        /// A channel the animation does not drive keeps the node's own value, so a track
-        /// that rotates a bone without moving it leaves the translation alone.
-        /// </remarks>
-        private Dictionary<string, NifTransform> BindPose()
-        {
-            if (_bindPose is not null)
-                return _bindPose;
-
-            _bindPose = new Dictionary<string, NifTransform>(StringComparer.Ordinal);
-
-            foreach (AnimSequence sequence in _model.ReadAnimations())
-            {
-                foreach (AnimTrack track in sequence.Tracks)
-                {
-                    if (_bindPose.ContainsKey(track.NodeName)
-                        || track.SourceNode is not { } node
-                        || !track.Translation.Concat(track.Rotation).Concat(track.Scale).Any(c => c.HasKeys))
-                    {
-                        continue;
-                    }
-
-                    NifTransform rest = _model.GetTransform(node);
-                    NifVector3 t = rest.Translation;
-                    NifVector3 r = rest.ToEulerDegrees();
-
-                    _bindPose[track.NodeName] = new NifTransform(
-                        new NifVector3(
-                            First(track.Translation[0], t.X),
-                            First(track.Translation[1], t.Y),
-                            First(track.Translation[2], t.Z)),
-                        NifTransform.RotationFromEulerDegrees(
-                            First(track.Rotation[0], r.X),
-                            First(track.Rotation[1], r.Y),
-                            First(track.Rotation[2], r.Z)),
-                        First(track.Scale[0], rest.Scale));
-                }
-            }
-
-            return _bindPose;
-        }
-
-        private Dictionary<string, NifTransform>? _bindPose;
-
-        /// <summary>A curve's first key, or the node's own value where it has none.</summary>
-        private static float First(AnimCurve curve, float fallback) =>
-            curve.Keys.Count > 0 ? curve.Keys[0].Value : fallback;
-
         /// <summary>Writes every deferred skin, now that the whole tree exists.</summary>
         private void ConvertPendingSkins(FbxScene scene)
         {
@@ -1935,8 +1880,7 @@ namespace NIFBX.Conversion
                 }
             }
 
-            foreach (string problem in FbxSkinIO.AddSkin(
-                         scene, geometry, skin, bones, NifTransform.Identity, BindPose()))
+            foreach (string problem in FbxSkinIO.AddSkin(scene, geometry, skin, bones, NifTransform.Identity))
                 Warnings.Add($"{_model.GetName(shape)}: {problem}");
         }
 

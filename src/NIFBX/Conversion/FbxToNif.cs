@@ -425,12 +425,6 @@ namespace NIFBX.Conversion
 
             NifTransform transform = ReadTransform(model);
 
-            // An animated bone stands at the pose its animation opens on, not at its
-            // own, so its own transform came across as a property. See
-            // FbxSkinIO.StandAtBind.
-            if (model.Properties.GetString(FbxSkinIO.BonePosedProperty) is { Length: > 0 } own)
-                transform = FbxSkinIO.ParseMatrix(own);
-
             // A mesh holder interposed on export carries no information of its own,
             // so unwrap it rather than emitting a redundant NiNode.
             bool isHolder = name.EndsWith("_support", StringComparison.Ordinal);

@@ -170,8 +170,7 @@ namespace NIFBX.Fbx
             FbxObject geometry,
             SkinData skin,
             IReadOnlyDictionary<string, FbxObject> bones,
-            NifTransform meshTransform,
-            IReadOnlyDictionary<string, NifTransform>? bindPose = null)
+            NifTransform meshTransform)
         {
             var problems = new List<string>();
 
@@ -184,13 +183,8 @@ namespace NIFBX.Fbx
                 meshTransform = FbxGlobalTransform.Of(scene, holder);
 
             foreach (SkinBone bone in skin.Bones)
-            {
-                if (!bones.TryGetValue(bone.Name, out FbxObject? boneModel))
-                    continue;
-
-                MarkAsLimb(scene, boneModel);
-                StandAtBind(boneModel, bone.Name, bindPose);
-            }
+                if (bones.TryGetValue(bone.Name, out FbxObject? boneModel))
+                    MarkAsLimb(scene, boneModel);
 
             // One skin deformer per partition, which is how FBX says this and how
             // ck-cmd says it too: it counts a mesh's skin deformers to get the
@@ -220,48 +214,6 @@ namespace NIFBX.Fbx
 
             return problems;
         }
-
-        /// <summary>
-        /// Stands an animated bone at the pose its animation opens on.
-        /// </summary>
-        /// <remarks>
-        /// A NIF's bone nodes hold whatever pose the file was saved in, which is not
-        /// the pose the skin was authored in -- `SkinTransform * boneWorld` should be
-        /// one placement for the whole skin and is not. Where the bones are animated
-        /// the authored pose is recoverable, because it is the pose the animation opens
-        /// on: across nightingalebanneranim01's seven bones the disagreement falls from
-        /// 8.08 units at the saved pose to 0.05 at the first frame, and across
-        /// dlc1protoswingingbridge's from 1216 to 82.7.
-        ///
-        /// So an animated bone is stood there. Its curves drive it from that frame
-        /// onward exactly as before -- the first key says the same thing -- and the mesh
-        /// now rests on a skeleton in the pose it was bound in rather than one that has
-        /// drifted from it.
-        ///
-        /// A bone no animation drives keeps what it had; dlc1sabrecat's fifty-nine are
-        /// all of that kind, their animations living outside the file, and there is
-        /// nothing there to recover a bind from.
-        ///
-        /// The node's own transform travels for the rebuild, see BonePosedProperty.
-        /// </remarks>
-        private static void StandAtBind(
-            FbxObject boneModel, string name, IReadOnlyDictionary<string, NifTransform>? bindPose)
-        {
-            if (bindPose is null
-                || !bindPose.TryGetValue(name, out NifTransform bind)
-                || boneModel.Properties.GetString(BonePosedProperty).Length > 0)
-            {
-                return;
-            }
-
-            boneModel.Properties.SetUserString(
-                BonePosedProperty, Matrix(FbxGlobalTransform.LocalOf(boneModel)));
-
-            FbxMeshWriter.SetTransform(boneModel, bind);
-        }
-
-        /// <summary>Where a bone node's own transform rides, once it has been posed.</summary>
-        public const string BonePosedProperty = "nif_node_transform";
 
         /// <summary>
         /// Says, in the file, that a node is a bone.
