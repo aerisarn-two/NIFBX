@@ -1302,6 +1302,22 @@ namespace NIFBX.Tests
                         LegendaryEdition = source.BSVersion < 100
                     }).Convert(db);
 
+                // Compared as it would be delivered, not as it stands in memory. The
+                // two used to be different files: a model that has only been built
+                // carries whatever the conversion computed, and writing it is where the
+                // format's own narrowing happens. Comparing before that measured
+                // numbers no NIF can hold, and lumbermill01waterwheel01 passed this
+                // sweep while coming back from `exportfbx | importfbx` with 5,210
+                // differing fields.
+                //
+                // NIFSharp now narrows on the way in, so the two agree again -- but the
+                // sweep saves and reloads regardless, because that is what a user gets
+                // and the round trip should be measured on it.
+                using var written = new MemoryStream();
+                rebuilt.Save(written);
+                written.Position = 0;
+                rebuilt = NifModel.Load(written, db);
+
                 List<NifDifference> unexplained = RoundTripBaseline.Unexplained(source, rebuilt);
 
                 if (unexplained.Count == 0)
