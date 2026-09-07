@@ -177,15 +177,37 @@ namespace NIFBX.Fbx
             if (skin.IsEmpty)
                 return problems;
 
-            // Where the mesh itself stands. The clusters are written against it: a
-            // cluster's `Transform` composed with its `TransformLink` is the mesh's own
-            // placement at bind time, and a reader takes the mesh matrix from there.
-            if (scene.ParentsOf(geometry.Id).FirstOrDefault(o => o.Class == "Model") is { } holder)
-                meshTransform = FbxGlobalTransform.Of(scene, holder);
+            // Where the mesh actually stands, which is not where its node says.
+            //
+            // A skinned shape is placed by its skin: NiSkinData's matrix for a bone,
+            // composed with where that bone stands, is the mesh's placement in the
+            // world, and the shape's own node transform takes no part in it. On
+            // 1stpersonprisonerrags_f_0 the node says (0, -1.548, 120.344) and the skin
+            // puts the mesh somewhere else entirely.
+            //
+            // Anchoring the clusters to the node instead declared a bind pose the
+            // skeleton is not in: `TransformLink` came out at (0, 1.930, 91.127) for a
+            // bone standing at (0, -5.932, 91.249). A reader that takes the mesh's bind
+            // transform from the node rather than from the cluster then deforms from one
+            // frame and draws in another.
+            NifTransform placement = SkinPlacement(scene, skin, bones) ?? meshTransform;
+
+            meshTransform = placement;
 
             foreach (SkinBone bone in skin.Bones)
                 if (bones.TryGetValue(bone.Name, out FbxObject? boneModel))
                     MarkAsLimb(scene, boneModel);
+
+            // ...and the node goes there, so the two agree. The shape's own transform is
+            // not lost: it travels for the rebuild, see NifToFbx.ShapeTransformProperty.
+            if (scene.ParentsOf(geometry.Id).FirstOrDefault(o => o.Class == "Model") is { } holder)
+            {
+                FbxMeshWriter.SetTransform(
+                    holder,
+                    FbxGlobalTransform.Under(
+                        scene, scene.ParentsOf(holder.Id).FirstOrDefault(o => o.Class == "Model"),
+                        placement));
+            }
 
             // One skin deformer per partition, which is how FBX says this and how
             // ck-cmd says it too: it counts a mesh's skin deformers to get the
@@ -214,6 +236,28 @@ namespace NIFBX.Fbx
                 AddOnePartition(scene, geometry, skin, bones, meshTransform, p, count, mapped, problems);
 
             return problems;
+        }
+
+        /// <summary>
+        /// Where the skin puts the mesh, taken from the first bone that answers.
+        /// </summary>
+        /// <remarks>
+        /// Every bone answers, and they disagree slightly -- about a unit across
+        /// nightingalebanneranim01's seven -- because a NIF states the product per bone
+        /// with its own rounding and the nodes hold whatever pose the file was saved in
+        /// rather than the pose the skin was authored in. FBX allows a skin one
+        /// placement, so one is chosen; any of them is it to within what the file kept.
+        /// </remarks>
+        private static NifTransform? SkinPlacement(
+            FbxScene scene, SkinData skin, IReadOnlyDictionary<string, FbxObject> bones)
+        {
+            foreach (SkinBone bone in skin.Bones)
+            {
+                if (bones.TryGetValue(bone.Name, out FbxObject? boneModel))
+                    return bone.SkinTransform.ComposedWith(FbxGlobalTransform.Of(scene, boneModel));
+            }
+
+            return null;
         }
 
         /// <summary>

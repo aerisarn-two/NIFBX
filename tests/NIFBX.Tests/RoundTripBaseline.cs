@@ -195,15 +195,6 @@ namespace NIFBX.Tests
             // and requires the result to match exactly, so geometry in the parent's
             // space passes and geometry that moved for any other reason still fails.
             // Excusing them by name excused both.
-            ["BSTriShape/Translation"] = "zeroed: the transform is baked into the vertices",
-            ["BSTriShape/Rotation"] = "zeroed: the transform is baked into the vertices",
-            ["BSTriShape/Scale"] = "reset: the transform is baked into the vertices",
-            ["NiTriShape/Translation"] = "zeroed: the transform is baked into the vertices",
-            ["NiTriShape/Rotation"] = "zeroed: the transform is baked into the vertices",
-            ["NiTriShape/Scale"] = "reset: the transform is baked into the vertices",
-            ["NiTriStrips/Translation"] = "zeroed: the transform is baked into the vertices",
-            ["NiTriStrips/Rotation"] = "zeroed: the transform is baked into the vertices",
-            ["NiTriStrips/Scale"] = "reset: the transform is baked into the vertices",
 
             // And the other geometry classes, which bake it exactly the same way. Three
             // were listed and the rest were not, so a mesh built on any of them reported
@@ -213,18 +204,6 @@ namespace NIFBX.Tests
             //
             // Listed from the classes this writes rather than the ones that happened to
             // come up, so the next mesh built on a fourth is not a new line here.
-            ["BSLODTriShape/Translation"] = "zeroed: the transform is baked into the vertices",
-            ["BSLODTriShape/Rotation"] = "zeroed: the transform is baked into the vertices",
-            ["BSLODTriShape/Scale"] = "reset: the transform is baked into the vertices",
-            ["BSDynamicTriShape/Translation"] = "zeroed: the transform is baked into the vertices",
-            ["BSDynamicTriShape/Rotation"] = "zeroed: the transform is baked into the vertices",
-            ["BSDynamicTriShape/Scale"] = "reset: the transform is baked into the vertices",
-            ["BSSubIndexTriShape/Translation"] = "zeroed: the transform is baked into the vertices",
-            ["BSSubIndexTriShape/Rotation"] = "zeroed: the transform is baked into the vertices",
-            ["BSSubIndexTriShape/Scale"] = "reset: the transform is baked into the vertices",
-            ["BSMeshLODTriShape/Translation"] = "zeroed: the transform is baked into the vertices",
-            ["BSMeshLODTriShape/Rotation"] = "zeroed: the transform is baked into the vertices",
-            ["BSMeshLODTriShape/Scale"] = "reset: the transform is baked into the vertices",
 
 
             // The game reads DDS and nothing else, so a texture entry naming a `.tga` or

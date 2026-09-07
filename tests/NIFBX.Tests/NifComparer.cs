@@ -858,33 +858,17 @@ namespace NIFBX.Tests
             /// The transform the exporter bakes into a block's geometry, if any.
             /// </summary>
             /// <remarks>
-            /// An unskinned shape's own transform is baked into its vertices and its
-            /// transform reset, which the spec records at §2 and ck-cmd does the same.
-            /// A skinned shape keeps its transform -- the skin applies it -- so nothing
-            /// is baked and there is nothing to undo.
+            /// Nothing, now: a shape keeps its transform on its node and its vertices
+            /// are written as the file holds them. Baking was what ck-cmd does and what
+            /// the spec recorded at §2, and it was lossy in exactly the way that comment
+            /// admitted -- the split between where a thing is and what shape it is did
+            /// not survive, and the FBX's node graph stopped matching the NIF's.
             ///
-            /// For LE the geometry is a block of its own and the transform is on the
-            /// `NiTriShape` above it, so the owner is looked up through whoever points
-            /// at it.
+            /// Kept as a hook rather than deleted because the caller still needs a
+            /// transform to compose with, and because an exporter that bakes again would
+            /// say so here.
             /// </remarks>
-            private NifTransform? BakedTransform(NifItem owner)
-            {
-                NifItem? shape = owner;
-
-                if (owner.Name is "NiTriShapeData" or "NiTriStripsData")
-                {
-                    shape = left.Blocks.FirstOrDefault(
-                        b => left.BlockInherits(b, "NiGeometry") && left.GetRef(b, "Data") == owner);
-                }
-
-                if (shape is null || !left.BlockInherits(shape, "NiAVObject"))
-                    return null;
-
-                // Skinned: identity, so a difference is a real one.
-                return left.GetRef(shape, "Skin") is not null || left.GetRef(shape, "Skin Instance") is not null
-                    ? null
-                    : left.GetTransform(shape);
-            }
+            private NifTransform? BakedTransform(NifItem owner) => null;
 
             private static uint SNormToByte(float value) =>
                 (uint)Math.Clamp(MathF.Round((value + 1f) / 2f * 255f), 0f, 255f);
@@ -955,8 +939,17 @@ namespace NIFBX.Tests
                 if (!position && !direction && !lane)
                     return false;
 
-                if (BakedTransform(_owner) is not { } transform)
+                // A particle copy is judged even where nothing was baked. The two
+                // encodings it goes through are not the transform's doing: the copy is
+                // written out of the vertex buffer, so it carries that field's rounding
+                // before its own whether or not the shape was moved. This rule used to
+                // sit inside the baked-transform one and vanished with it.
+                NifTransform? baked = BakedTransform(_owner);
+
+                if (baked is null && ParticleSource(a) is null)
                     return false;
+
+                NifTransform transform = baked ?? NifTransform.Identity;
 
                 if (lane)
                 {
