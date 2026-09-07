@@ -276,13 +276,33 @@ namespace NIFBX.Fbx
         /// <summary>
         /// Adds an object, assigning it a fresh id when it does not have one.
         /// </summary>
+        /// <summary>
+        /// The name an object's <c>Class::Name</c> prefix uses, which is not always
+        /// the record's own name.
+        /// </summary>
+        /// <remarks>
+        /// Autodesk writes <c>AnimStack::</c> over an <c>AnimationStack</c> record,
+        /// and readers key off the prefix rather than off the record name. An
+        /// animation announcing itself as <c>AnimationStack::</c> is not one they
+        /// recognise, so the curves arrive and nothing plays.
+        /// </remarks>
+        private static readonly Dictionary<string, string> ClassAliases = new(StringComparer.Ordinal)
+        {
+            ["AnimationStack"] = "AnimStack",
+            ["AnimationLayer"] = "AnimLayer",
+            ["AnimationCurveNode"] = "AnimCurveNode",
+            ["AnimationCurve"] = "AnimCurve",
+        };
+
         public FbxObject AddObject(string className, string name, string subClass, long? id = null)
         {
             var node = new FbxNode(className);
             var o = new FbxObject(node);
 
+            string prefix = ClassAliases.GetValueOrDefault(className, className);
+
             node.Properties.Add(id ?? NextId());
-            node.Properties.Add($"{className}::{name}");
+            node.Properties.Add($"{prefix}::{name}");
             node.Properties.Add(subClass);
 
             _objects.Add(o);

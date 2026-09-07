@@ -351,27 +351,38 @@ namespace NIFBX.Fbx
             NifVector3 r = transform.ToEulerDegrees();
             float s = transform.Scale;
 
-            // Only write channels that differ from the default, keeping files close
-            // to what other exporters produce.
-            if (t.X != 0 || t.Y != 0 || t.Z != 0)
-                model.Properties.Set("Lcl Translation", "Lcl Translation", "", "A", (double)t.X, (double)t.Y, (double)t.Z);
-
-            if (r.X != 0 || r.Y != 0 || r.Z != 0)
-                model.Properties.Set("Lcl Rotation", "Lcl Rotation", "", "A", (double)r.X, (double)r.Y, (double)r.Z);
-
-            if (Math.Abs(s - 1f) > 1e-6f)
-                model.Properties.Set("Lcl Scaling", "Lcl Scaling", "", "A", (double)s, (double)s, (double)s);
+            model.Properties.Set("RotationActive", "bool", "", "", 1);
 
             // Scale is inherited normally; NIF has no other mode.
             model.Properties.Set("InheritType", "enum", "", "", 1);
+
+            model.Properties.Set("ScalingMax", "Vector3D", "Vector", "", 0.0, 0.0, 0.0);
+            model.Properties.Set("DefaultAttributeIndex", "int", "Integer", "", 0);
+
+            // All three channels, always, whatever they hold. Writing only the ones
+            // that differ from the default kept files small and lost animation: a
+            // property that is not there cannot be flagged animated, and a reader is
+            // entitled to ignore a curve on a channel that does not admit to having
+            // one. A node rotating from a rest pose of zero had no Lcl Rotation to
+            // carry the flag, so its curve arrived and drove nothing.
+            //
+            // "A+" is that flag -- animatable *and animated*. "A" alone only says a
+            // curve may exist.
+            model.Properties.Set("Lcl Translation", "Lcl Translation", "", "A+",
+                (double)t.X, (double)t.Y, (double)t.Z);
+            model.Properties.Set("Lcl Rotation", "Lcl Rotation", "", "A+",
+                (double)r.X, (double)r.Y, (double)r.Z);
+            model.Properties.Set("Lcl Scaling", "Lcl Scaling", "", "A+",
+                (double)s, (double)s, (double)s);
 
             node.Nodes.Add(new FbxNode("MultiLayer", 0));
             node.Nodes.Add(new FbxNode("MultiTake", 0));
 
             // FBX's one-byte boolean is property type 'C', which MeshIO models as a
             // char in both directions. Passing a bool here writes nothing MeshIO can
-            // serialise and the save fails.
-            node.Nodes.Add(new FbxNode("Shading", (char)1));
+            // serialise and the save fails. The value writers actually stamp is 'Y',
+            // not 1.
+            node.Nodes.Add(new FbxNode("Shading", 'Y'));
 
             node.Nodes.Add(new FbxNode("Culling", "CullingOff"));
 

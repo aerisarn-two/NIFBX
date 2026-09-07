@@ -126,10 +126,24 @@ namespace NIFBX.Conversion
         /// <summary>Writes the model's sequences as FBX animation stacks.</summary>
         private void ConvertAnimation(FbxScene scene)
         {
+            AnimSequence? first = null;
+            float stop = 0f;
+
             foreach (AnimSequence sequence in _model.ReadAnimations())
             {
                 foreach (string missing in FbxAnimWriter.AddSequence(scene, sequence, ModelFor))
                     Warnings.Add($"{sequence.Name}: no node named \"{missing}\", its animation is dropped");
+
+                first ??= sequence;
+                stop = MathF.Max(stop, sequence.Stop);
+            }
+
+            // The scene opens on the first take, which is the one a file with a single
+            // sequence -- almost all of them -- means.
+            if (first is not null)
+            {
+                FbxDocumentTemplate.NameTheTake(
+                    scene.Document, first.Name, FbxAnimWriter.ToFbxTime(stop));
             }
         }
 
@@ -2365,24 +2379,38 @@ namespace NIFBX.Conversion
     public static class FbxDocumentTemplate
     {
         /// <summary>
-        /// An empty FBX 7.4 document with the header, global settings and empty
+        /// An empty FBX 7.7 document with the header, global settings and empty
         /// object and connection sections.
         /// </summary>
         /// <remarks>
         /// Global settings declare Max axes (Z-up, right-handed) and centimetres,
         /// matching what FBXWrangler sets on the scene. Those two declarations are
         /// what let coordinates pass through unconverted.
+        ///
+        /// The rest is scaffolding no reader of this project's own output ever
+        /// missed, because a reader that is the writer's mirror agrees with itself.
+        /// Put through the Autodesk SDK -- the copy ck-cmd vendors, run under Wine --
+        /// every file this converter had ever written came back "Invalid FBX File".
+        /// The conventions here are the ones HKFBX established against that same SDK
+        /// and against a Mixamo export that works, and they are followed rather than
+        /// rediscovered.
         /// </remarks>
         public static FbxDocument CreateEmpty()
         {
-            var document = new FbxDocument { Version = FbxVersion.v7400 };
+            var document = new FbxDocument { Version = FbxVersion.v7700 };
 
             var header = new FbxNode("FBXHeaderExtension");
             header.Nodes.Add(new FbxNode("FBXHeaderVersion", 1003));
-            header.Nodes.Add(new FbxNode("FBXVersion", (int)FbxVersion.v7400));
+            header.Nodes.Add(new FbxNode("FBXVersion", (int)FbxVersion.v7700));
+            header.Nodes.Add(new FbxNode("EncryptionType", 0));
 
             // Not decoration: readers reject a header without a timestamp.
+            //
+            // Truncated to the second. The footer code mangles millisecond/10 into
+            // its hash, so a value that is not a whole hundredth invites a writer and
+            // a reader to disagree about a file neither got wrong.
             DateTime now = DateTime.Now;
+            now = new DateTime(now.Year, now.Month, now.Day, now.Hour, now.Minute, now.Second);
             var stamp = new FbxNode("CreationTimeStamp");
             stamp.Nodes.Add(new FbxNode("Version", 1000));
             stamp.Nodes.Add(new FbxNode("Year", now.Year));
@@ -2391,18 +2419,40 @@ namespace NIFBX.Conversion
             stamp.Nodes.Add(new FbxNode("Hour", now.Hour));
             stamp.Nodes.Add(new FbxNode("Minute", now.Minute));
             stamp.Nodes.Add(new FbxNode("Second", now.Second));
-            stamp.Nodes.Add(new FbxNode("Millisecond", now.Millisecond));
+            stamp.Nodes.Add(new FbxNode("Millisecond", 0));
             header.Nodes.Add(stamp);
 
-            header.Nodes.Add(new FbxNode("Creator", "se-cmd"));
+            header.Nodes.Add(new FbxNode("Creator", "NIFBX"));
             document.Nodes.Add(header);
 
-            // The SDK will not open a file without this. It is the same instant as the
-            // header's CreationTimeStamp, written again at the top level as a string,
-            // and nothing in the format's structure suggests a reader needs both.
             document.Nodes.Add(new FbxNode("CreationTime", now.ToString("yyyy-MM-dd HH:mm:ss:fff")));
+            document.Nodes.Add(new FbxNode("Creator", "NIFBX"));
 
-            document.Nodes.Add(new FbxNode("Creator", "se-cmd"));
+            //
+            // The scene document. A viewer reads ActiveAnimStackName to decide which
+            // take to play, so a file without one can hold a perfectly good animation
+            // and still open showing nothing moving. Named once the stacks exist --
+            // see NameTheTake.
+            //
+            var documents = new FbxNode("Documents");
+            documents.Nodes.Add(new FbxNode("Count", 1));
+
+            var scene = new FbxNode("Document");
+            scene.Properties.Add(1L);
+            scene.Properties.Add("");
+            scene.Properties.Add("Scene");
+
+            var sceneProperties = new FbxNode("Properties70");
+            scene.Nodes.Add(sceneProperties);
+            var sceneSettings = new FbxProperties(sceneProperties);
+            sceneSettings.Set("SourceObject", "object", "", "");
+            sceneSettings.Set("ActiveAnimStackName", "KString", "", "", string.Empty);
+
+            scene.Nodes.Add(new FbxNode("RootNode", 0L));
+            documents.Nodes.Add(scene);
+            document.Nodes.Add(documents);
+
+            document.Nodes.Add(new FbxNode("References"));
 
             var settings = new FbxNode("GlobalSettings");
             settings.Nodes.Add(new FbxNode("Version", 1000));
@@ -2419,7 +2469,20 @@ namespace NIFBX.Conversion
             globals.Set("FrontAxisSign", "int", "Integer", "", -1);
             globals.Set("CoordAxis", "int", "Integer", "", 0);
             globals.Set("CoordAxisSign", "int", "Integer", "", 1);
+            globals.Set("OriginalUpAxis", "int", "Integer", "", 2);
+            globals.Set("OriginalUpAxisSign", "int", "Integer", "", 1);
             globals.Set("UnitScaleFactor", "double", "Number", "", 1.0);
+            globals.Set("OriginalUnitScaleFactor", "double", "Number", "", 1.0);
+
+            // 6 is FbxTime::eFrames30. The enum is not a frame rate, and 11 -- which
+            // reads like one -- is eFrames24.
+            globals.Set("TimeMode", "enum", "", "", 6);
+            globals.Set("TimeProtocol", "enum", "", "", 2);
+
+            // The timeline a viewer opens on. Widened to the animation once there is
+            // one; without it the take exists and the scrubber has nothing to scrub.
+            globals.Set("TimeSpanStart", "KTime", "Time", "", 0L);
+            globals.Set("TimeSpanStop", "KTime", "Time", "", 0L);
 
             document.Nodes.Add(settings);
 
@@ -2432,6 +2495,56 @@ namespace NIFBX.Conversion
             document.Nodes.Add(new FbxNode("Connections"));
 
             return document;
+        }
+
+        /// <summary>
+        /// Names the take a viewer should open on, and writes the Takes list.
+        /// </summary>
+        /// <remarks>
+        /// Two records name the same thing for two generations of reader:
+        /// `ActiveAnimStackName` on the scene document, which is what the SDK reads,
+        /// and the `Takes` list, which predates AnimationStack and which some readers
+        /// still consult. A file with neither holds its animation and opens still.
+        ///
+        /// Called with the first stack, since that is the one a scene opens on. A file
+        /// with no animation is left as it was built, naming nothing.
+        /// </remarks>
+        public static void NameTheTake(FbxDocument document, string takeName, long stop)
+        {
+            if (takeName.Length == 0)
+                return;
+
+            if (document["Documents"]?.Nodes.FirstOrDefault(n => n.Name == "Document") is { } scene
+                && scene.Nodes.FirstOrDefault(n => n.Name == "Properties70") is { } properties)
+            {
+                new FbxProperties(properties)
+                    .Set("ActiveAnimStackName", "KString", "", "", takeName);
+            }
+
+            if (document["GlobalSettings"]?.Nodes.FirstOrDefault(n => n.Name == "Properties70")
+                is { } globals)
+            {
+                new FbxProperties(globals).Set("TimeSpanStop", "KTime", "Time", "", stop);
+            }
+
+            var takes = new FbxNode("Takes");
+            takes.Nodes.Add(new FbxNode("Current", takeName));
+
+            var take = new FbxNode("Take", takeName);
+            take.Nodes.Add(new FbxNode("FileName", takeName + ".tak"));
+
+            var local = new FbxNode("LocalTime");
+            local.Properties.Add(0L);
+            local.Properties.Add(stop);
+            take.Nodes.Add(local);
+
+            var reference = new FbxNode("ReferenceTime");
+            reference.Properties.Add(0L);
+            reference.Properties.Add(stop);
+            take.Nodes.Add(reference);
+
+            takes.Nodes.Add(take);
+            document.Nodes.Add(takes);
         }
     }
 }
