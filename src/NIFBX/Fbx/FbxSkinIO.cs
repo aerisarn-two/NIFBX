@@ -442,33 +442,21 @@ namespace NIFBX.Fbx
                 clusterNode.Nodes.Add(new FbxNode("Indexes", indices));
                 clusterNode.Nodes.Add(new FbxNode("Weights", weights));
 
-// `TransformLink` is where the bone stands. `Transform` takes a vertex
-                // from the mesh into that bone, and is derived from the two rather than
-                // copied from NiSkinData.
+// `Transform` takes a vertex from the mesh into the bone, which is what
+                // NiSkinData states per bone, and `TransformLink` is where that bone
+                // stands. Both are copied out of the file; neither is worked out here.
                 //
-                // Copying it looks like the faithful thing and is not. NiSkinData's
-                // matrix is the inverse bind, and the nodes are not at the bind pose:
-                // `SkinTransform * boneWorld` differs from where the mesh actually sits
-                // by 77 units on nightingalebanneranim01 and far more on dlc1sabrecat,
-                // which is the distance between the pose the file was saved in and the
-                // pose the skin was authored in. Deforming by that difference is what
-                // garbled the creature, and it is not what NifSkope shows -- NifSkope
-                // draws the mesh undeformed, at `skinTransform` inverted.
+                // Deriving one of them was a workaround for reading a NIF's rotations
+                // transposed, which put a skin's per-bone answers 227 units apart on
+                // dlc1sabrecat and made the file look as though it stated no bind pose.
+                // It states one, and composed the right way round the answers agree to
+                // the last bit.
                 //
-                // So the inverse bind is derived against the bones as they stand, which
-                // makes the rest pose exactly the undeformed mesh -- the same thing
-                // NifSkope draws -- for every bone at once. NiSkinData's own matrix is
-                // not lost: it travels verbatim, see BoneBindProperty, and the rebuild
-                // reads it back.
-                NifTransform boneWorld = FbxGlobalTransform.Of(scene, boneModel);
-
-                NifTransform inverseBind =
-                    System.Numerics.Matrix4x4.Invert(boneWorld.ToMatrix(), out var undoBone)
-                        ? NifTransform.FromMatrix(meshTransform.ToMatrix() * undoBone)
-                        : bone.SkinTransform;
-
-                clusterNode.Nodes.Add(new FbxNode("Transform", ToMatrixArray(inverseBind)));
-                clusterNode.Nodes.Add(new FbxNode("TransformLink", ToMatrixArray(boneWorld)));
+                // `Transform` goes in bone space, which is what the field holds and not
+                // what the FBX SDK presents; Blender's exporter carries the same warning.
+                clusterNode.Nodes.Add(new FbxNode("Transform", ToMatrixArray(bone.SkinTransform)));
+                clusterNode.Nodes.Add(new FbxNode(
+                    "TransformLink", ToMatrixArray(FbxGlobalTransform.Of(scene, boneModel))));
 
                 // And the product itself, exactly as the file states it. See
                 // BoneBindProperty.
