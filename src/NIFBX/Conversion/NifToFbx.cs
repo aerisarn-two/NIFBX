@@ -1951,6 +1951,29 @@ namespace NIFBX.Conversion
                 }
             }
 
+            // A chain also needs the node it hangs from, which is not a bone itself.
+            //
+            // Blender consumes the topmost bone of a chain to make the armature object
+            // out of, and only what is under it becomes bones. So whatever is marked
+            // as the top is the one bone the file loses: the banner's `Banner1_Root`
+            // became an armature and the weights naming it went nowhere. Worse, a NIF
+            // whose bones are flat siblings of one another -- `prisonerrags_0`,
+            // `dlc1sabrecat`, most of the game's characters -- has as many chains as it
+            // has bones, and came in as one empty armature each, with no armature
+            // modifier on the mesh and so no skinning at all. Marking the node above
+            // each chain gives Blender the one it takes and leaves every bone the NIF
+            // names a bone. The FBX SDK reads the extra node as an `eRoot` joint with
+            // nothing bound to it, which is what it is.
+            var hangers = new HashSet<NifItem>();
+
+            foreach (NifItem bone in bones)
+            {
+                if (parent.TryGetValue(bone, out NifItem? above) && !bones.Contains(above))
+                    hangers.Add(above);
+            }
+
+            bones.UnionWith(hangers);
+
             // How far it is to the bone below, which is how long the bone is and so how
             // big a viewer should draw its joint. A leaf takes the distance to whatever
             // it hangs from, so the ends of a chain match the rest of it.

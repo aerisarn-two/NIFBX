@@ -20,6 +20,11 @@ namespace NIFBX.Tests
     /// came out as ninety-five empties. And a bone carrying no weight of its own but
     /// with a weighted child is still part of the chain -- left unmarked it breaks the
     /// armature in two.
+    ///
+    /// And a chain has to hang from a marked node it does not own, because Blender
+    /// spends the topmost bone on the armature object itself. A file whose bones are
+    /// flat siblings -- most of the game's characters -- otherwise arrives as one
+    /// empty armature per bone and nothing deforming the mesh.
     /// </remarks>
     public class BoneMarkingTests
     {
@@ -99,12 +104,20 @@ namespace NIFBX.Tests
                     + "is not one, so the chain between them is broken");
             }
 
-            // ...and the root is not a bone. It is the file, not part of the skeleton.
-            foreach (NifItem root in roots)
+            // ...and every chain hangs from a node that is marked too, because Blender
+            // takes the topmost one to build the armature object out of and only what
+            // is under it becomes bones. Leave a chain topped by a real bone and that
+            // bone is the one the armature does not have.
+            foreach (NifItem node in parent.Keys)
             {
-                Assert.False(
-                    limbs.Contains(m.GetName(root)),
-                    $"{name}: the root '{m.GetName(root)}' is marked a bone");
+                if (!limbs.Contains(m.GetName(node))) continue;
+                if (parent.GetValueOrDefault(node) is not { } above) continue;
+
+                Assert.True(
+                    limbs.Contains(m.GetName(above)),
+                    $"{name}: '{m.GetName(node)}' tops a chain, so Blender will spend it "
+                    + $"on the armature; '{m.GetName(above)}' above it has to be marked "
+                    + "instead");
             }
 
             // A file with no geometry is a skeleton, and all of it is bones.
