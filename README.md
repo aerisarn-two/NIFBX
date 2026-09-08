@@ -38,12 +38,20 @@ an installed copy and skip without one.
 Blender needs telling two things about a Bethesda model, and there is one place
 it is easy to import from and get neither.
 
-Use **File ▸ Import ▸ FBX**, the "FBX format" add-on. Blender 5.0 also ships a
-newer built-in importer, and it is the one on the drag-and-drop path; it has no
-bone-axis setting, so a skeleton always arrives ninety degrees across the limbs
-and there is nothing you can set to correct it.
+Blender 5.0 lists FBX twice under **File ▸ Import**, and the difference is not
+what the labels suggest:
 
-In that dialog:
+| | | |
+| --- | --- | --- |
+| **FBX (.fbx)** | the new built-in importer | no bone settings |
+| **FBX (.fbx) (Legacy)** | the "FBX format" add-on | the one to use |
+
+Take the one marked **(Legacy)**. The plain entry is Blender's own newer
+importer, and it is what drag-and-drop uses as well; it has no bone-axis setting,
+so a skeleton opened that way always arrives ninety degrees across the limbs and
+there is nothing you can set to correct it.
+
+In the add-on's dialog:
 
 | | |
 | --- | --- |
