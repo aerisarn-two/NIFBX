@@ -199,10 +199,18 @@ namespace NIFBX.Tests
         }
 
         /// <summary>The probe, when it has been built.</summary>
+        /// <remarks>
+        /// Linux only. `build.sh` builds an ELF against the SDK's Linux archive, and a
+        /// Windows runner asked to start one reports that it is not a valid application
+        /// for the platform -- which is what it did when the binary was committed by
+        /// accident and found on a checkout that could not run it.
+        /// </remarks>
         internal static string? SdkProbe
         {
             get
             {
+                if (!OperatingSystem.IsLinux()) return null;
+
                 string? named = Environment.GetEnvironmentVariable("SECMD_FBXPROBE");
 
                 if (named is not null && File.Exists(named)) return named;
