@@ -340,6 +340,30 @@ namespace NIFBX.Fbx
         /// "Mesh" for a node carrying geometry, "Null" for a plain transform,
         /// "LimbNode" for a skeleton joint.
         /// </param>
+        /// <summary>
+        /// Says whether a viewer should draw this node.
+        /// </summary>
+        /// <remarks>
+        /// A NIF hides a node with bit 0 of its flags, and hides rather a lot: the
+        /// geometry a particle system emits from is a surface, not a thing to look at,
+        /// and so are the shapes a ragdoll is built over. NifSkope honours it and draws
+        /// none of them.
+        ///
+        /// Written as `Visibility` and `Show`, which is the pair Autodesk writes, so a
+        /// viewer opening the FBX sees what NifSkope shows. On
+        /// lumbermill01waterwheel01 that is five pieces it should not draw: two emitter
+        /// meshes lying at -41.7 degrees, the ragdoll's rod, and the two collision
+        /// hulls, none of which move with the wheel because none of them belongs to it.
+        ///
+        /// The flag itself still travels as a field, so hiding a node here changes what
+        /// is drawn and not what is rebuilt.
+        /// </remarks>
+        public static void SetVisible(FbxObject model, bool visible)
+        {
+            model.Properties.Set("Visibility", "Visibility", "", "A+", visible ? 1.0 : 0.0);
+            model.Properties.Set("Show", "bool", "", "", visible ? 1 : 0);
+        }
+
         /// <summary>Rewrites a model's placement, keeping everything else about it.</summary>
         public static void SetTransform(FbxObject model, NifTransform transform)
         {

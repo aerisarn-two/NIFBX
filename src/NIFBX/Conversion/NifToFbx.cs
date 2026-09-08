@@ -264,6 +264,9 @@ namespace NIFBX.Conversion
 
 
             FbxObject node = FbxMeshWriter.AddModel(scene, name, "Null", _model.GetTransform(block));
+
+            if (IsHidden(block))
+                FbxMeshWriter.SetVisible(node, false);
             _built[block] = node;
             Remember(block, node);
 
@@ -414,6 +417,7 @@ namespace NIFBX.Conversion
             FbxObject bodyNode = FbxMeshWriter.AddModel(
                 scene, bodyName, "Null", FbxGlobalTransform.Under(scene, parent, transform));
 
+            FbxMeshWriter.SetVisible(bodyNode, false);
             scene.Connect(bodyNode, parent);
 
             FbxCollisionObject.Write(bodyNode, _model, collision, body);
@@ -470,6 +474,7 @@ namespace NIFBX.Conversion
                 FbxObject node = FbxMeshWriter.AddModel(
                     scene, name, "Null", HavokTransformOf(shape));
 
+                FbxMeshWriter.SetVisible(node, false);
                 scene.Connect(node, parent);
 
                 // The suffix says what kind of container this is, but not exactly
@@ -525,7 +530,9 @@ namespace NIFBX.Conversion
             ShapeTessellator.Scale(mesh, ShapeTessellator.BhkScaleFactor);
 
             string shapeName = parentName + ShapeSuffix(shape.Name);
+            // Collision is a shape the physics reads, not one a viewer draws.
             FbxObject holder = FbxMeshWriter.AddModel(scene, shapeName, "Mesh", NifTransform.Identity);
+            FbxMeshWriter.SetVisible(holder, false);
             scene.Connect(holder, parent);
 
             FbxObject geometry = FbxMeshWriter.AddGeometry(scene, shapeName + "_geometry", mesh);
@@ -1638,6 +1645,11 @@ namespace NIFBX.Conversion
             FbxObject holder = FbxMeshWriter.AddModel(
                 scene, $"{name}_support", "Mesh", _model.GetTransform(shape));
 
+            // A shape the file hides -- an emitter's surface, a ragdoll's proxy -- is
+            // still written, because the rebuild needs it, and still not drawn.
+            if (IsHidden(shape))
+                FbxMeshWriter.SetVisible(holder, false);
+
             if (parent is null)
                 scene.ConnectToRoot(holder);
             else
@@ -1826,6 +1838,11 @@ namespace NIFBX.Conversion
             if (_model.ReadSkin(shape) is not null)
                 _pendingSkins.Add((shape, geometry));
         }
+
+        /// <summary>Whether the file says not to draw this block.</summary>
+        /// <remarks>Bit 0 of an NiAVObject's flags, which NifSkope honours.</remarks>
+        private bool IsHidden(NifItem block) =>
+            (_model.FindItem(block, "Flags")?.Value.ToUInt() ?? 0) % 2 == 1;
 
         /// <summary>Writes every deferred skin, now that the whole tree exists.</summary>
         private void ConvertPendingSkins(FbxScene scene)
