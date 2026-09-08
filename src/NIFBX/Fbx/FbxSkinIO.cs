@@ -182,10 +182,6 @@ namespace NIFBX.Fbx
             if (scene.ParentsOf(geometry.Id).FirstOrDefault(o => o.Class == "Model") is { } holder)
                 meshTransform = FbxGlobalTransform.Of(scene, holder);
 
-            foreach (SkinBone bone in skin.Bones)
-                if (bones.TryGetValue(bone.Name, out FbxObject? boneModel))
-                    MarkAsLimb(scene, boneModel);
-
             // One skin deformer per partition, which is how FBX says this and how
             // ck-cmd says it too: it counts a mesh's skin deformers to get the
             // partition count (`FBXWrangler.cpp:2826`) and creates one per partition
@@ -232,16 +228,40 @@ namespace NIFBX.Fbx
         /// Which nodes are bones is known only once the skins are read, which is why
         /// this happens here rather than where the node was built.
         /// </remarks>
-        internal static void MarkAsLimb(FbxScene scene, FbxObject model)
+        internal static void MarkAsLimb(FbxScene scene, FbxObject model, bool chainTop, double size)
         {
-            if (model.SubClass == "LimbNode")
+            if (model.SubClass is "LimbNode" or "Root")
                 return;
 
-            model.SubClass = "LimbNode";
+            // "Root" at the top of a chain, "LimbNode" below it, which is what the SDK
+            // reads back as FbxSkeleton::eRoot and eLimbNode. A viewer draws a chain
+            // from its root down, and one that finds no root draws each joint on its
+            // own -- a string of beads rather than a skeleton.
+            string kind = chainTop ? "Root" : "LimbNode";
 
-            FbxObject attribute = scene.AddObject("NodeAttribute", string.Empty, "LimbNode");
+            model.SubClass = kind;
+
+            FbxObject attribute = scene.AddObject("NodeAttribute", string.Empty, kind);
+
+            // How big to draw the joint. The default is 100, which on a Skyrim skeleton
+            // is wider than most of the bones are long, so every joint swallows the one
+            // below it. Taken from the distance to the bone below instead, so the
+            // skeleton is drawn to its own scale.
+            new FbxProperties(EnsureProperties(attribute.Node))
+                .Set("Size", "double", "Number", string.Empty, size);
+
             attribute.Node.Nodes.Add(new FbxNode("TypeFlags", "Skeleton"));
             scene.Connect(attribute, model);
+        }
+
+        private static FbxNode EnsureProperties(FbxNode node)
+        {
+            if (node.Nodes.FirstOrDefault(n => n.Name == "Properties70") is { } existing)
+                return existing;
+
+            var properties = new FbxNode("Properties70");
+            node.Nodes.Add(properties);
+            return properties;
         }
 
         /// <summary>Writes one partition as a skin deformer and its clusters.</summary>

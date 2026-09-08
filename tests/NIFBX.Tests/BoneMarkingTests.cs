@@ -33,9 +33,11 @@ namespace NIFBX.Tests
 
             var scene = new FbxScene(new NifToFbx(m).Convert());
 
+            // Both kinds are bones: "Root" tops a chain and "LimbNode" hangs below one,
+            // which the SDK reads back as FbxSkeleton::eRoot and eLimbNode.
             var limbs = new HashSet<string>(
                 scene.Objects
-                    .Where(o => o.Class == "Model" && o.SubClass == "LimbNode")
+                    .Where(o => o.Class == "Model" && o.SubClass is "LimbNode" or "Root")
                     .Select(o => NameEncoding.Unsanitize(o.Name)),
                 StringComparer.Ordinal);
 

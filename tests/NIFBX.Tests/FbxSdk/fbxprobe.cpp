@@ -72,8 +72,27 @@ static void Bones(FbxNode* node, int depth)
     {
         FbxNode* parent = node->GetParent();
 
-        printf("bone name=%s depth=%d parent=%s\n",
-               node->GetName(), depth, parent ? parent->GetName() : "-");
+        // The dedicated accessor, and the skeleton kind it reports. eRoot is the
+        // top of a chain, eLimb a bone with a length, eLimbNode a bone that is just
+        // a joint, eEffector an IK target.
+        FbxSkeleton* skeleton = node->GetSkeleton();
+        const char* kind = "?";
+
+        if (skeleton)
+        {
+            switch (skeleton->GetSkeletonType())
+            {
+            case FbxSkeleton::eRoot:      kind = "Root"; break;
+            case FbxSkeleton::eLimb:      kind = "Limb"; break;
+            case FbxSkeleton::eLimbNode:  kind = "LimbNode"; break;
+            case FbxSkeleton::eEffector:  kind = "Effector"; break;
+            default: break;
+            }
+        }
+
+        printf("bone name=%s depth=%d parent=%s getSkeleton=%s kind=%s size=%.3f\n",
+               node->GetName(), depth, parent ? parent->GetName() : "-",
+               skeleton ? "yes" : "no", kind, skeleton ? skeleton->Size.Get() : 0.0);
     }
 
     for (int i = 0; i < node->GetChildCount(); ++i)
@@ -173,6 +192,27 @@ int main(int argc, char** argv)
     else if (strcmp(what, "bones") == 0)
     {
         Bones(scene->GetRootNode(), 0);
+
+        // The other thing that makes a node a bone: something deforms with it.
+        for (int i = 0; i < scene->GetSrcObjectCount<FbxGeometry>(); ++i)
+        {
+            FbxGeometry* geometry = scene->GetSrcObject<FbxGeometry>(i);
+
+            for (int d = 0; d < geometry->GetDeformerCount(FbxDeformer::eSkin); ++d)
+            {
+                FbxSkin* skin = (FbxSkin*)geometry->GetDeformer(d, FbxDeformer::eSkin);
+
+                for (int c = 0; c < skin->GetClusterCount(); ++c)
+                {
+                    FbxNode* link = skin->GetCluster(c)->GetLink();
+
+                    if (!link) continue;
+
+                    printf("link name=%s hasSkeletonAttribute=%d\n",
+                           link->GetName(), link->GetSkeleton() ? 1 : 0);
+                }
+            }
+        }
     }
     else if (strcmp(what, "curve") == 0 && argc >= 4)
     {

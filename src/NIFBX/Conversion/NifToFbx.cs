@@ -1951,9 +1951,65 @@ namespace NIFBX.Conversion
                 }
             }
 
+            // How far it is to the bone below, which is how long the bone is and so how
+            // big a viewer should draw its joint. A leaf takes the distance to whatever
+            // it hangs from, so the ends of a chain match the rest of it.
+            double Reach(NifItem block)
+            {
+                NifVector3 here = WorldOf(block).Translation;
+
+                double nearest = double.MaxValue;
+
+                foreach (NifItem child in _model.GetRefArray(block, "Children"))
+                {
+                    if (!bones.Contains(child)) continue;
+
+                    nearest = Math.Min(nearest, Distance(here, WorldOf(child).Translation));
+                }
+
+                if (nearest is not double.MaxValue)
+                    return nearest;
+
+                return parent.TryGetValue(block, out NifItem? above) && bones.Contains(above)
+                    ? Distance(here, WorldOf(above).Translation)
+                    : 0d;
+            }
+
+            NifTransform WorldOf(NifItem block)
+            {
+                NifTransform at = _model.GetTransform(block);
+
+                for (NifItem? up = parent.GetValueOrDefault(block);
+                     up is not null;
+                     up = parent.GetValueOrDefault(up))
+                {
+                    at = at.ComposedWith(_model.GetTransform(up));
+                }
+
+                return at;
+            }
+
             foreach (NifItem block in bones)
-                if (_built.TryGetValue(block, out FbxObject? model) && model.Class == "Model")
-                    FbxSkinIO.MarkAsLimb(scene, model);
+            {
+                if (!_built.TryGetValue(block, out FbxObject? model) || model.Class != "Model")
+                    continue;
+
+                bool chainTop = !parent.TryGetValue(block, out NifItem? above)
+                                || !bones.Contains(above);
+
+                // A tenth of the bone's own length: big enough to see where the joint
+                // is, small enough that it does not cover the bone it starts.
+                double reach = Reach(block);
+                double size = reach > 0d ? Math.Max(0.5d, reach * 0.1d) : 1d;
+
+                FbxSkinIO.MarkAsLimb(scene, model, chainTop, size);
+            }
+        }
+
+        private static double Distance(NifVector3 a, NifVector3 b)
+        {
+            double x = a.X - b.X, y = a.Y - b.Y, z = a.Z - b.Z;
+            return Math.Sqrt((x * x) + (y * y) + (z * z));
         }
 
         /// <summary>Writes every deferred skin, now that the whole tree exists.</summary>
