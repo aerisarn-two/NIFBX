@@ -425,21 +425,20 @@ namespace NIFBX.Conversion
                 float c = dot;
                 float k = 1f / (1f + c);
 
-                // Rodrigues' formula, expanded and transposed: it is usually written
-                // for column vectors, while NifTransform.Apply multiplies a row
-                // vector, so the rows here have to be the images of the basis
-                // vectors. Written the other way round, +Z lands on (-d.x, -d.y, d.z)
-                // and the shape points the wrong way.
+                // Rodrigues' formula as it is usually written, for column vectors,
+                // which is the form a NIF stores and NifTransform applies. Written the
+                // other way round, +Z lands on (-d.x, -d.y, d.z) and the shape points
+                // the wrong way.
                 rotation = new NifMatrix33
                 {
                     M11 = v.X * v.X * k + c,
-                    M12 = v.X * v.Y * k + v.Z,
-                    M13 = v.X * v.Z * k - v.Y,
-                    M21 = v.Y * v.X * k - v.Z,
+                    M12 = v.X * v.Y * k - v.Z,
+                    M13 = v.X * v.Z * k + v.Y,
+                    M21 = v.Y * v.X * k + v.Z,
                     M22 = v.Y * v.Y * k + c,
-                    M23 = v.Y * v.Z * k + v.X,
-                    M31 = v.Z * v.X * k + v.Y,
-                    M32 = v.Z * v.Y * k - v.X,
+                    M23 = v.Y * v.Z * k - v.X,
+                    M31 = v.Z * v.X * k - v.Y,
+                    M32 = v.Z * v.Y * k + v.X,
                     M33 = v.Z * v.Z * k + c
                 };
             }
