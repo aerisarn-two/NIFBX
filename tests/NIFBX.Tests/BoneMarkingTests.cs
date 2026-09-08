@@ -55,6 +55,56 @@ namespace NIFBX.Tests
                 }
             }
 
+            // The chain has to be whole: a node with a bone above it and a bone below
+            // it lies on the path between them, so it is a bone too. Without that a
+            // bone's parent can be an empty and the armature comes apart there.
+            var parent = new Dictionary<NifItem, NifItem>();
+
+            void Chain(NifItem node)
+            {
+                foreach (NifItem child in m.GetRefArray(node, "Children"))
+                {
+                    parent[child] = node;
+                    Chain(child);
+                }
+            }
+
+            var roots = m.GetRefArray(m.Footer, "Roots").ToList();
+
+            foreach (NifItem root in roots)
+                Chain(root);
+
+            bool Below(NifItem node) =>
+                m.GetRefArray(node, "Children").Any(c => limbs.Contains(m.GetName(c)) || Below(c));
+
+            foreach (NifItem node in parent.Keys)
+            {
+                if (limbs.Contains(m.GetName(node)) || !Below(node))
+                    continue;
+
+                bool above = false;
+
+                for (NifItem? at = parent.GetValueOrDefault(node);
+                     at is not null;
+                     at = parent.GetValueOrDefault(at))
+                {
+                    if (limbs.Contains(m.GetName(at))) { above = true; break; }
+                }
+
+                Assert.False(
+                    above,
+                    $"{name}: '{m.GetName(node)}' has a bone above it and a bone below it and "
+                    + "is not one, so the chain between them is broken");
+            }
+
+            // ...and the root is not a bone. It is the file, not part of the skeleton.
+            foreach (NifItem root in roots)
+            {
+                Assert.False(
+                    limbs.Contains(m.GetName(root)),
+                    $"{name}: the root '{m.GetName(root)}' is marked a bone");
+            }
+
             // A file with no geometry is a skeleton, and all of it is bones.
             bool anyGeometry = m.Blocks.Any(
                 b => m.BlockInherits(b, "BSTriShape") || m.BlockInherits(b, "NiTriBasedGeom"));
@@ -64,24 +114,15 @@ namespace NIFBX.Tests
 
             // A root on its own is neither a skeleton nor a mesh, and says nothing
             // either way -- TestNifFile_RootNonZero is one.
-            void Walk(NifItem node)
+            foreach (NifItem node in parent.Keys)
             {
-                foreach (NifItem child in m.GetRefArray(node, "Children"))
-                {
-                    if (m.BlockInherits(child, "NiNode"))
-                    {
-                        Assert.True(
-                            limbs.Contains(m.GetName(child)),
-                            $"{name}: this file has no geometry, so it is a skeleton, and "
-                            + $"'{m.GetName(child)}' is not marked a bone");
-                    }
+                if (!m.BlockInherits(node, "NiNode")) continue;
 
-                    Walk(child);
-                }
+                Assert.True(
+                    limbs.Contains(m.GetName(node)),
+                    $"{name}: this file has no geometry, so it is a skeleton, and "
+                    + $"'{m.GetName(node)}' is not marked a bone");
             }
-
-            foreach (NifItem root in m.GetRefArray(m.Footer, "Roots"))
-                Walk(root);
         }
     }
 }

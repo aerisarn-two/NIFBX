@@ -8,6 +8,7 @@
 // symmetric, so the round trip closed over it and the suite stayed green.
 //
 //   fbxprobe where <file.fbx>          every mesh's control points in world space
+//   fbxprobe bones <file.fbx>          the skeleton, as an importer would build it
 //   fbxprobe curve <file.fbx> <node>   a node's rotation curves, keys and values
 //
 // Output is one record per line, `key=value` separated by spaces, meant to be
@@ -56,6 +57,27 @@ static void Where(FbxNode* node)
 
     for (int i = 0; i < node->GetChildCount(); ++i)
         Where(node->GetChild(i));
+}
+
+// Whether the SDK sees a node as a skeleton limb, which is what decides whether
+// an importer builds an armature or a pile of empties.
+static void Bones(FbxNode* node, int depth)
+{
+    FbxNodeAttribute* attribute = node->GetNodeAttribute();
+
+    bool limb = attribute
+        && attribute->GetAttributeType() == FbxNodeAttribute::eSkeleton;
+
+    if (limb)
+    {
+        FbxNode* parent = node->GetParent();
+
+        printf("bone name=%s depth=%d parent=%s\n",
+               node->GetName(), depth, parent ? parent->GetName() : "-");
+    }
+
+    for (int i = 0; i < node->GetChildCount(); ++i)
+        Bones(node->GetChild(i), depth + 1);
 }
 
 static void Curve(FbxNode* node, FbxAnimLayer* layer, const char* want)
@@ -147,6 +169,10 @@ int main(int argc, char** argv)
     if (strcmp(what, "where") == 0)
     {
         Where(scene->GetRootNode());
+    }
+    else if (strcmp(what, "bones") == 0)
+    {
+        Bones(scene->GetRootNode(), 0);
     }
     else if (strcmp(what, "curve") == 0 && argc >= 4)
     {

@@ -1900,20 +1900,54 @@ namespace NIFBX.Conversion
             }
             else
             {
-                // A skin's bones, and whatever they hang from up to the root.
+                // The bones a skin names, and the nodes that connect them.
+                //
+                // Not every ancestor: a node above the topmost bone joins nothing, and
+                // marking it invents a bone the file does not have --
+                // dlc1protoswingingbridge came out with eight for its seven that way.
+                // What has to be filled in is the inside of the skeleton, so that a
+                // bone's parent is a bone: a node with a bone both above and below it
+                // lies on the path between them, and a node with bones in two different
+                // subtrees is where those paths meet.
+                var weighted = new HashSet<NifItem>();
+
                 foreach (NifItem shape in _model.Blocks)
                 {
                     if (_model.GetRef(shape, "Skin") is not { } instance)
                         continue;
 
                     foreach (NifItem bone in _model.GetRefArray(instance, "Bones"))
+                        weighted.Add(bone);
+                }
+
+                bones.UnionWith(weighted);
+
+                bool Below(NifItem node) =>
+                    _model.GetRefArray(node, "Children")
+                        .Any(c => weighted.Contains(c) || Below(c));
+
+                bool Above(NifItem node)
+                {
+                    for (NifItem? at = parent.GetValueOrDefault(node);
+                         at is not null;
+                         at = parent.GetValueOrDefault(at))
                     {
-                        for (NifItem? at = bone;
-                             at is not null && !roots.Contains(at) && bones.Add(at);
-                             at = parent.GetValueOrDefault(at))
-                        {
-                        }
+                        if (weighted.Contains(at)) return true;
                     }
+
+                    return false;
+                }
+
+                foreach (NifItem node in parent.Keys)
+                {
+                    if (bones.Contains(node) || !_model.BlockInherits(node, "NiNode"))
+                        continue;
+
+                    int branches = _model.GetRefArray(node, "Children")
+                        .Count(c => weighted.Contains(c) || Below(c));
+
+                    if (branches >= 2 || (branches >= 1 && Above(node)))
+                        bones.Add(node);
                 }
             }
 
