@@ -66,6 +66,11 @@ namespace NIFBX.Conversion
             // none of them and left a deformer with no clusters at all.
             ConvertPendingSkins(scene);
 
+            // After the skins, which mark the bones they weight; this covers the rest --
+            // a skeleton file has no skin to do it, and a chain can run through a bone
+            // nothing weights.
+            MarkBones(scene);
+
             // After the tree, because a track binds to a model by name and every
             // model has to exist before anything can be bound to it.
             // Both need the whole tree: a constraint joins two bodies and a track
@@ -1843,6 +1848,79 @@ namespace NIFBX.Conversion
         /// <remarks>Bit 0 of an NiAVObject's flags, which NifSkope honours.</remarks>
         private bool IsHidden(NifItem block) =>
             (_model.FindItem(block, "Flags")?.Value.ToUInt() ?? 0) % 2 == 1;
+
+        /// <summary>
+        /// Says which nodes are bones, for everything the skins did not already cover.
+        /// </summary>
+        /// <remarks>
+        /// A NIF's bones are ordinary nodes; FBX says it in a model's subclass and in a
+        /// `NodeAttribute` carrying `TypeFlags: Skeleton`, and an importer that finds
+        /// neither builds no armature and gives you a pile of empties instead.
+        ///
+        /// Two kinds are missed by marking only the bones a skin names. A skeleton file
+        /// has no skin at all -- `skeleton_cow` is forty-eight nodes, no geometry and
+        /// eleven ragdoll constraints, and came out as ninety-five empties -- so every
+        /// node under the root is a bone there. And a bone whose child is weighted but
+        /// which carries no weight itself is still part of the chain: left unmarked it
+        /// breaks the armature in half, so the walk goes up from each weighted bone to
+        /// the root.
+        ///
+        /// The root itself is not a bone. It is the file, and an importer makes it the
+        /// object the armature hangs on.
+        /// </remarks>
+        private void MarkBones(FbxScene scene)
+        {
+            var parent = new Dictionary<NifItem, NifItem>();
+
+            void Walk(NifItem node)
+            {
+                foreach (NifItem child in _model.GetRefArray(node, "Children"))
+                {
+                    parent[child] = node;
+                    Walk(child);
+                }
+            }
+
+            var roots = FindRootBlocks().ToList();
+
+            foreach (NifItem root in roots)
+                Walk(root);
+
+            var bones = new HashSet<NifItem>();
+
+            bool anyGeometry = _model.Blocks.Any(
+                b => _model.BlockInherits(b, "BSTriShape") || _model.BlockInherits(b, "NiTriBasedGeom"));
+
+            if (!anyGeometry)
+            {
+                // A skeleton: everything under the root is a bone.
+                foreach (NifItem block in parent.Keys)
+                    if (_model.BlockInherits(block, "NiNode"))
+                        bones.Add(block);
+            }
+            else
+            {
+                // A skin's bones, and whatever they hang from up to the root.
+                foreach (NifItem shape in _model.Blocks)
+                {
+                    if (_model.GetRef(shape, "Skin") is not { } instance)
+                        continue;
+
+                    foreach (NifItem bone in _model.GetRefArray(instance, "Bones"))
+                    {
+                        for (NifItem? at = bone;
+                             at is not null && !roots.Contains(at) && bones.Add(at);
+                             at = parent.GetValueOrDefault(at))
+                        {
+                        }
+                    }
+                }
+            }
+
+            foreach (NifItem block in bones)
+                if (_built.TryGetValue(block, out FbxObject? model) && model.Class == "Model")
+                    FbxSkinIO.MarkAsLimb(scene, model);
+        }
 
         /// <summary>Writes every deferred skin, now that the whole tree exists.</summary>
         private void ConvertPendingSkins(FbxScene scene)

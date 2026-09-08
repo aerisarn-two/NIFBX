@@ -232,7 +232,7 @@ namespace NIFBX.Fbx
         /// Which nodes are bones is known only once the skins are read, which is why
         /// this happens here rather than where the node was built.
         /// </remarks>
-        private static void MarkAsLimb(FbxScene scene, FbxObject model)
+        internal static void MarkAsLimb(FbxScene scene, FbxObject model)
         {
             if (model.SubClass == "LimbNode")
                 return;
