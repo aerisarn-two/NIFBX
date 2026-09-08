@@ -1496,9 +1496,7 @@ namespace NIFBX.Nif
                 NifItem keys = SizeGroup(model, group, string.Empty, curve.Keys.Count,
                     KeyTypeOf([curve]));
 
-                // Back the way they came: negated, as NifAnimAccess.ReadRotations
-                // explains, and in radians.
-                const float ToNifRadians = -ToRadians;
+                const float ToNifRadians = ToRadians;
 
                 for (int i = 0; i < curve.Keys.Count && i < keys.Children.Count; i++)
                 {
