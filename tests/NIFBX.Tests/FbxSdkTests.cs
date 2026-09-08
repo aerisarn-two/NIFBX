@@ -25,7 +25,7 @@ namespace NIFBX.Tests
     /// </remarks>
     public class FbxSdkTests
     {
-        [SdkTheory]
+        [CkCmdTheory]
         [MemberData(nameof(RoundTripTests.EveryFixture), MemberType = typeof(RoundTripTests))]
         public void TheSdkOpensWhatWeWrite(string name)
         {
@@ -100,10 +100,10 @@ namespace NIFBX.Tests
         }
     }
 
-    /// <summary>Skips a test that has no FBX SDK to ask.</summary>
-    internal sealed class SdkTheoryAttribute : TheoryAttribute
+    /// <summary>Skips a test that has no ck-cmd to ask.</summary>
+    internal sealed class CkCmdTheoryAttribute : TheoryAttribute
     {
-        public SdkTheoryAttribute()
+        public CkCmdTheoryAttribute()
         {
             if (FbxSdkTests.CkCmd is null)
                 Skip = "set SECMD_CKCMD to the folder holding ck-cmd.exe, which links the FBX SDK";
