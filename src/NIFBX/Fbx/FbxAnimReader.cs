@@ -89,6 +89,96 @@ namespace NIFBX.Fbx
             return track;
         }
 
+        /// <summary>
+        /// Takes back out the rotation keys the export put in for Blender's sake.
+        /// </summary>
+        /// <remarks>
+        /// See <see cref="FbxAnimWriter.RotationSplitPrefix"/> for why they are there.
+        /// They are the export's, not the file's, so the NIF gets back the curve it
+        /// stated -- two keys for a revolution, not three.
+        ///
+        /// Only when the curve still has the key count that was written. A curve
+        /// re-animated in Blender, or written by anything that does not record this,
+        /// keeps every key it has: the record says where this export cut, and it stops
+        /// meaning that the moment someone else edits the result.
+        /// </remarks>
+        private static void DropInsertedRotationKeys(
+            FbxObject stack, Dictionary<string, AnimTrack> tracks)
+        {
+            foreach (AnimTrack track in tracks.Values)
+            {
+                string recorded = stack.Properties.GetString(
+                    FbxAnimWriter.RotationSplitKey(track.NodeName));
+
+                if (recorded.Length == 0)
+                    continue;
+
+                foreach (string entry in recorded.Split('|'))
+                {
+                    string[] parts = entry.Split(',');
+
+                    if (parts.Length < 3
+                        || !int.TryParse(parts[0], out int axis)
+                        || !int.TryParse(parts[1], out int count)
+                        || axis < 0 || axis >= track.Rotation.Length)
+                    {
+                        continue;
+                    }
+
+                    AnimCurve curve = track.Rotation[axis];
+
+                    if (curve.Keys.Count != count)
+                        continue;
+
+                    var drop = new HashSet<int>();
+
+                    for (int i = 2; i < parts.Length; i++)
+                    {
+                        if (int.TryParse(parts[i], out int at))
+                            drop.Add(at);
+                    }
+
+                    var kept = new List<AnimKey>(curve.Keys.Count - drop.Count);
+                    var rejoined = new List<int>();
+
+                    for (int i = 0; i < curve.Keys.Count; i++)
+                    {
+                        if (drop.Contains(i))
+                        {
+                            // The survivor before this one now reaches further.
+                            if (kept.Count > 0 && !rejoined.Contains(kept.Count - 1))
+                                rejoined.Add(kept.Count - 1);
+
+                            continue;
+                        }
+
+                        kept.Add(curve.Keys[i]);
+                    }
+
+                    // A NIF states a slope as the value its segment covers, so a key
+                    // whose segment just grew back has to state the whole of it again.
+                    // Only where this export cut, and only for a segment it proved
+                    // straight, so the slope a line has is the slope it had.
+                    foreach (int at in rejoined)
+                    {
+                        if (at + 1 >= kept.Count)
+                            continue;
+
+                        float whole = kept[at + 1].Value - kept[at].Value;
+
+                        if (kept[at].Handles == AnimHandles.Slopes)
+                            kept[at] = kept[at] with { Forward = whole };
+
+                        if (kept[at + 1].Handles == AnimHandles.Slopes)
+                            kept[at + 1] = kept[at + 1] with { Backward = whole };
+                    }
+
+                    curve.Keys.Clear();
+                    curve.Keys.AddRange(kept);
+                }
+            }
+        }
+
         private static void ReadConstants(FbxObject stack, Dictionary<string, AnimTrack> tracks)
         {
             foreach (FbxProperty70 property in stack.Properties.All)
@@ -468,6 +558,8 @@ namespace NIFBX.Fbx
                 foreach (FbxObject node in scene.ChildrenOf(layer.Id).Where(o => o.Class == "AnimationCurveNode"))
                     ReadCurveNode(scene, node, tracks);
             }
+
+            DropInsertedRotationKeys(stack, tracks);
 
             ReadConstants(stack, tracks);
             ReadEmpties(stack, tracks);

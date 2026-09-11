@@ -172,9 +172,9 @@ namespace NIFBX.Fbx
 
                 if (model is not null)
                 {
-                    AddChannel(scene, layer, model, "T", "Lcl Translation", track.Translation);
-                    AddChannel(scene, layer, model, "R", "Lcl Rotation", track.Rotation);
-                    AddChannel(scene, layer, model, "S", "Lcl Scaling", track.Scale);
+                    AddChannel(scene, layer, model, "T", "Lcl Translation", track.Translation, null, "");
+                    AddChannel(scene, layer, model, "R", "Lcl Rotation", track.Rotation, stack, track.NodeName);
+                    AddChannel(scene, layer, model, "S", "Lcl Scaling", track.Scale, null, "");
                 }
 
                 foreach (AnimProperty property in track.Properties)
@@ -305,6 +305,145 @@ namespace NIFBX.Fbx
 
         /// <summary>The key a track's object id rides under.</summary>
         public static string NodeIdKey(string nodeName) => $"{NodeIdPrefix}{nodeName}";
+
+        /// <summary>Prefix on a stack property naming a track's inserted rotation keys.</summary>
+        /// <remarks>
+        /// Blender will not turn a wheel from two keys. Its manual is explicit: "to
+        /// animate a revolving element you must set up many intermediate keyframes, 180
+        /// degrees from each other at most", because a whole turn and no turn are the
+        /// same pair of orientations and it takes the shortest path between them --
+        /// which is to stand still. `lumbermill01waterwheel01` states its revolution as
+        /// 0 and -360 on one axis, the way the game does, and arrives motionless.
+        ///
+        /// So a rotation step wider than half a turn is cut, and where it is cut
+        /// matters as much as that it is. An XYZ Euler loses an axis when its middle
+        /// angle passes +-90, and a key sitting on that value is decoded into a
+        /// different orientation every time the reader guesses: cut evenly, a full turn
+        /// lands keys at exactly -90 and -270 and the wheel's axle visibly tilts twice a
+        /// revolution. Cut at the multiples of 180 instead and every key is as far from
+        /// a singularity as it can be. Measured on the waterwheel, that is the
+        /// difference between a rim travelling a constant 16.100 units a frame and one
+        /// varying between 7.475 and 26.303.
+        ///
+        /// The inserted keys are recorded here so the import can take them out again
+        /// and hand back the curve the NIF stated. By index and against the key count
+        /// they were written with, so a curve that has since been re-animated -- in
+        /// Blender, or by any tool that does not write this -- keeps every key it has.
+        /// </remarks>
+        public const string RotationSplitPrefix = "rotsplit_";
+
+        /// <summary>The key a track's inserted rotation keys ride under.</summary>
+        public static string RotationSplitKey(string nodeName) =>
+            $"{RotationSplitPrefix}{nodeName}";
+
+        /// <summary>
+        /// The same curve with no step wider than half a turn, and where it was cut.
+        /// </summary>
+        /// <remarks>
+        /// Only a segment that is already a straight line is cut, because a midpoint is
+        /// only exactly on a curve when the curve is one: the two halves of a split
+        /// linear segment reproduce it, and nothing here can subdivide a cubic without
+        /// evaluating it. A rotation that accelerates through more than half a turn is
+        /// left as it stands rather than flattened.
+        /// </remarks>
+        private static (AnimCurve Curve, List<int> Inserted) SplitWideRotation(AnimCurve curve)
+        {
+            var inserted = new List<int>();
+
+            if (curve.Keys.Count < 2)
+                return (curve, inserted);
+
+            var split = new AnimCurve();
+            AnimKey? trailing = null;
+
+            for (int i = 0; i < curve.Keys.Count; i++)
+            {
+                AnimKey a = trailing ?? curve.Keys[i];
+                trailing = null;
+
+                if (i + 1 >= curve.Keys.Count)
+                {
+                    split.Keys.Add(a);
+                    continue;
+                }
+
+                AnimKey b = curve.Keys[i + 1];
+
+                float span = b.Value - a.Value;
+                float seconds = b.Time - a.Time;
+
+                // A straight segment states the same slope at both ends, and a NIF
+                // states a slope as the value the segment covers. Only a straight one
+                // is cut: a midpoint lies on the curve only when the curve is a line,
+                // and nothing here can subdivide a cubic without evaluating it.
+                bool straight = Math.Abs(span) > 180f
+                    && seconds > 0f
+                    && a.Handles == AnimHandles.Slopes
+                    && Math.Abs(a.Forward - span) < Math.Abs(span) * 1e-4f
+                    && Math.Abs(b.Backward - span) < Math.Abs(span) * 1e-4f;
+
+                if (!straight)
+                {
+                    split.Keys.Add(a);
+                    continue;
+                }
+
+                // Every multiple of 180 strictly inside the step, in the direction of
+                // travel: as far from the +-90 singularities as a cut can be.
+                int direction = Math.Sign(span);
+                var stops = new List<float>();
+
+                for (float at = (float)(Math.Floor(a.Value / 180f) * 180f) + (direction > 0 ? 180f : 0f);
+                     direction > 0 ? at < b.Value : at > b.Value;
+                     at += direction * 180f)
+                {
+                    if (Math.Abs(at - a.Value) > 1e-3f && Math.Abs(at - b.Value) > 1e-3f)
+                        stops.Add(at);
+                }
+
+                if (stops.Count == 0)
+                {
+                    split.Keys.Add(a);
+                    continue;
+                }
+
+                // The slope a NIF states is the value its segment covers, so every key
+                // bounding a shortened segment has to state the shorter one -- the
+                // first of them included, which is why `a` is rewritten here rather
+                // than added above.
+                float rate = span / seconds;
+
+                var edges = new List<float> { a.Value };
+                edges.AddRange(stops);
+                edges.Add(b.Value);
+
+                for (int e = 0; e < edges.Count - 1; e++)
+                {
+                    float from = edges[e], to = edges[e + 1];
+
+                    AnimKey key = e == 0
+                        ? a with { Forward = to - from }
+                        : new AnimKey(a.Time + (from - a.Value) / rate, from, a.Interpolation)
+                        {
+                            Handles = a.Handles,
+                            Forward = to - from,
+                            Backward = from - edges[e - 1]
+                        };
+
+                    if (e > 0)
+                        inserted.Add(split.Keys.Count);
+
+                    split.Keys.Add(key);
+                }
+
+                // ...and the far end states the last leg rather than the whole step.
+                // Held aside rather than written into the caller's curve, which belongs
+                // to the model being read and must come out of this unchanged.
+                trailing = b with { Backward = edges[^1] - edges[^2] };
+            }
+
+            return inserted.Count == 0 ? (curve, inserted) : (split, inserted);
+        }
 
         public const string ConstantPrefix = "const_";
 
@@ -586,7 +725,8 @@ namespace NIFBX.Fbx
         /// </remarks>
         private static void AddChannel(
             FbxScene scene, FbxObject layer, FbxObject model,
-            string channel, string property, AnimCurve[] curves)
+            string channel, string property, AnimCurve[] curves,
+            FbxObject? stack, string nodeName)
         {
             if (!curves.Any(c => c.HasKeys))
                 return;
@@ -610,14 +750,36 @@ namespace NIFBX.Fbx
             scene.Connect(node, layer);
             scene.ConnectToProperty(node, model, property);
 
+            var cuts = new List<string>();
+
             for (int axis = 0; axis < 3; axis++)
             {
                 if (!curves[axis].HasKeys)
                     continue;
 
-                FbxObject curve = AddCurve(scene, curves[axis]);
+                AnimCurve source = curves[axis];
+
+                if (stack is not null)
+                {
+                    (AnimCurve split, List<int> inserted) = SplitWideRotation(source);
+
+                    if (inserted.Count > 0)
+                    {
+                        source = split;
+
+                        // Which axis, how many keys it ended up with, and which of them
+                        // this put there.
+                        cuts.Add(
+                            $"{axis},{split.Keys.Count},{string.Join(",", inserted)}");
+                    }
+                }
+
+                FbxObject curve = AddCurve(scene, source);
                 scene.ConnectToProperty(curve, node, axes[axis]);
             }
+
+            if (cuts.Count > 0 && stack is not null)
+                stack.Properties.SetUserString(RotationSplitKey(nodeName), string.Join("|", cuts));
         }
 
         /// <summary>Writes a single component's keys as an <c>AnimationCurve</c>.</summary>
