@@ -37,6 +37,14 @@ namespace NIFBX.Tests
         [InlineData("BSEffectShaderPropertyFloatController", "5", "", "BSEffectShaderProperty")]
         [InlineData("NiFloatExtraDataController", "hkSomething", "", "")]
         [InlineData("NiPSysUpdateCtlr", "", "", "")]
+        // A separator inside a part, which the game does ship: the five controllers
+        // of `dwelexiconstandcorrupt01` carry a stale pointer in their `Extra Data
+        // Name` and four of its bytes are 0x7C. Split naively, the id came back empty
+        // and every part after it shifted along one.
+        [InlineData("NiFloatExtraDataController", "|\u00e58x|\u00e58xest02", "", "")]
+        [InlineData("NiPSysEmitterCtlr", "a|b", "c|d", "e|f")]
+        // ...and the escape itself, which has to survive being written literally.
+        [InlineData("NiFloatExtraDataController", "100%|%7C", "", "")]
         public void IdentitySurvivesTheNameItRidesIn(string type, string id, string interp, string property)
         {
             string name = AnimProperty.ToPropertyName(type, id, interp, property);

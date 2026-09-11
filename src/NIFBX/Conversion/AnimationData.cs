@@ -118,8 +118,11 @@ namespace NIFBX.Conversion
     {
         /// <summary>The separator between the parts of an encoded name.</summary>
         /// <remarks>
-        /// Chosen because NIF names are identifiers and paths; none of them contain
-        /// a pipe, so nothing legitimate is ambiguous.
+        /// Chosen because NIF names are identifiers and paths, which do not contain a
+        /// pipe. Not every string a NIF holds is a name, though:
+        /// `dwelexiconstandcorrupt01` ships five controllers whose `Extra Data Name` is
+        /// a stale pointer written over the front of the real one, and four of those
+        /// bytes are 0x7C. So the parts are escaped rather than trusted.
         /// </remarks>
         public const char Separator = '|';
 
@@ -277,7 +280,13 @@ namespace NIFBX.Conversion
                 return VisibilityName;
             }
 
-            var parts = new List<string> { controllerType, controllerId, interpolatorId, propertyType };
+            var parts = new List<string>
+            {
+                Escape(controllerType),
+                Escape(controllerId),
+                Escape(interpolatorId),
+                Escape(propertyType)
+            };
 
             // Trailing empties carry nothing, and dropping them keeps the common
             // case -- a controller with no ids at all -- readable.
@@ -286,6 +295,22 @@ namespace NIFBX.Conversion
 
             return string.Join(Separator, parts);
         }
+
+        /// <summary>Hides a separator inside one part of an encoded name.</summary>
+        /// <remarks>
+        /// Percent-encoded, and the percent with it so the escape is reversible. A part
+        /// holding a pipe otherwise splits into two and every part after it shifts
+        /// along: `NiFloatExtraDataController` with the id `|X|Xest02` read back as
+        /// that controller with no id at all, driving nothing.
+        /// </remarks>
+        private static string Escape(string part) =>
+            part.Contains('%') || part.Contains(Separator)
+                ? part.Replace("%", "%25").Replace("|", "%7C")
+                : part;
+
+        /// <inheritdoc cref="Escape"/>
+        private static string Unescape(string part) =>
+            part.Contains('%') ? part.Replace("%7C", "|").Replace("%25", "%") : part;
 
         /// <summary>Recovers the identity from an FBX property name.</summary>
         public static (string ControllerType, string ControllerId, string InterpolatorId, string PropertyType)
@@ -296,7 +321,7 @@ namespace NIFBX.Conversion
 
             string[] parts = name.Split(Separator);
 
-            string At(int i) => i < parts.Length ? parts[i] : string.Empty;
+            string At(int i) => i < parts.Length ? Unescape(parts[i]) : string.Empty;
 
             return (At(0), At(1), At(2), At(3));
         }
