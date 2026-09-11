@@ -32,7 +32,7 @@
     <PackageReference Include="NIFSharp" Version="1.0.3" />
 
     <!-- The FBX as its raw node tree. The semantics above it are here, in Fbx/. -->
-    <PackageReference Include="LeanMeshIO" Version="1.0.2" />
+    <PackageReference Include="LeanMeshIO" Version="1.0.3" />
 
     <!--
       Ships mopper.exe beside the build output. MOPP collision code cannot be
