@@ -11,6 +11,15 @@
 # without Automatic Bone Orientation every rig arrives ninety degrees across its
 # own limbs.
 #
+# `bake_anim_use_all_actions` is the expensive one, and it is on deliberately. A
+# NIF's sequences each become an action, and only one of them can be the active
+# one, so exporting only the active action would drop every sequence but one.
+# The cost is that Blender's exporter bakes every action against every object:
+# `blacksmithforgemarker` is 285 objects, and it goes from 1.1 seconds with no
+# baking, to 7.9 with the active action only, to over ten minutes with all of
+# them. A file that large is left to the caller's timeout, which counts it as too
+# slow rather than as a failure.
+#
 #   blender -b --python passthrough.py -- in.fbx out.fbx
 
 import bpy

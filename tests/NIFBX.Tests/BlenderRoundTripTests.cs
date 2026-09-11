@@ -63,6 +63,17 @@ namespace NIFBX.Tests
             }
         }
 
+        /// <summary>What <see cref="ThroughBlender"/> says when it ran out of patience.</summary>
+        /// <remarks>
+        /// Distinct from a refusal, and deliberately not a failure. Blender's importer
+        /// slows down sharply with the number of objects in a file:
+        /// `blacksmithforgemarker` is 880 of them, and Blender was still importing it
+        /// twenty minutes later, where this converter wrote the same FBX in eleven
+        /// seconds. That is a fact about Blender, not a defect in the file, so it is
+        /// counted and reported rather than asserted on.
+        /// </remarks>
+        internal const string TooSlow = "Blender did not finish inside two minutes";
+
         /// <summary>The script Blender is handed, beside this file rather than packed.</summary>
         private static string Script =>
             Path.GetFullPath(Path.Combine(
@@ -71,7 +82,7 @@ namespace NIFBX.Tests
         /// <summary>
         /// One model out through FBX, through Blender, and back.
         /// </summary>
-        /// <returns>The rebuilt model, or null when Blender would not read the file.</returns>
+        /// <returns>The rebuilt model, or null when Blender did not produce one.</returns>
         private static NifModel? ThroughBlender(NifModel source, string name, out string said)
         {
             NifItem? root = source.FindItem(source.Footer, "Roots") is { Children.Count: > 0 } roots
@@ -112,15 +123,38 @@ namespace NIFBX.Tests
 
                 // Long enough for the heaviest mesh in the game and short enough that a
                 // sweep of thousands cannot hang on one of them.
-                string output = blender.StandardOutput.ReadToEnd();
-                string errors = blender.StandardError.ReadToEnd();
+                // Drained as it arrives rather than with `ReadToEnd`, which blocks until
+                // the stream closes -- that is, until Blender exits. Read that way the
+                // timeout below is never reached in time and is dead code: one mesh the
+                // size of `blacksmithforgemarker` held a sweep for half an hour, which
+                // is precisely what the timeout exists to stop.
+                var chatter = new System.Text.StringBuilder();
+
+                void Keep(object _, DataReceivedEventArgs e)
+                {
+                    if (e.Data is not null)
+                        lock (chatter) chatter.AppendLine(e.Data);
+                }
+
+                blender.OutputDataReceived += Keep;
+                blender.ErrorDataReceived += Keep;
+                blender.BeginOutputReadLine();
+                blender.BeginErrorReadLine();
 
                 if (!blender.WaitForExit(120_000))
                 {
                     blender.Kill(entireProcessTree: true);
-                    said = "Blender did not finish inside two minutes";
+                    said = TooSlow;
                     return null;
                 }
+
+                // Again without a limit, which is what flushes the two readers.
+                blender.WaitForExit();
+
+                string output;
+
+                lock (chatter)
+                    output = chatter.ToString();
 
                 if (!File.Exists(theirs))
                 {
@@ -128,7 +162,7 @@ namespace NIFBX.Tests
                     // rest of its startup chatter, so the last lines are what to keep.
                     said = string.Join(
                         " / ",
-                        (errors + "\n" + output)
+                        output
                             .Split('\n', StringSplitOptions.RemoveEmptyEntries)
                             .Select(l => l.Trim())
                             .Where(l => l.Length > 0)
@@ -277,7 +311,7 @@ namespace NIFBX.Tests
                     NifModel? rebuilt = ThroughBlender(source, file.Path, out string said);
 
                     string? differences = rebuilt is null
-                        ? $"Blender would not read it. {said}"
+                        ? (said == TooSlow ? TooSlow : $"Blender would not read it. {said}")
                         : Differences(source, rebuilt);
 
                     checked_.Add((file.Path, differences));
@@ -296,16 +330,18 @@ namespace NIFBX.Tests
                 .Where(c => c.Differences?.StartsWith("Blender would not read it", StringComparison.Ordinal) == true)
                 .ToList();
 
+            var slow = checked_.Where(c => c.Differences == TooSlow).ToList();
             int unchanged = checked_.Count(c => c.Differences is null);
 
             Console.WriteLine(
                 $"--- {checked_.Count} through Blender in {clock.Elapsed:hh\\:mm\\:ss}, "
-                + $"{unchanged} unchanged, {refused.Count} refused");
+                + $"{unchanged} unchanged, {refused.Count} refused, {slow.Count} too slow for Blender");
 
             // A mesh Blender will not open is this converter's fault whatever else is
-            // true of it, so that one is a gate rather than a share. What a Blender
-            // round trip loses is counted above and not asserted on: see the remarks
-            // on this class for why that number is large and whose it is.
+            // true of it, so that one is a gate rather than a share. One Blender merely
+            // takes too long over is not: see `TooSlow`. And what a Blender round trip
+            // loses is counted above and not asserted on either -- see the remarks on
+            // this class for why that number is large and whose it is.
             Assert.True(
                 refused.Count == 0,
                 $"Blender refused {refused.Count}: "
