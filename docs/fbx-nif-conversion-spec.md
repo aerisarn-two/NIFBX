@@ -101,6 +101,7 @@ The FBX → NIF direction keys entirely off node names:
 | `_sp` | Simple shape phantom (`bhkSPCollisionObject`) |
 | `_con_` | Constraint attach point; excluded from body detection |
 | `_attach_point` | Suffix of a constraint node |
+| `_frame_a` | Suffix of the child node carrying a joint's far frame |
 | `_support` | Interposed node holding a mesh attribute |
 | `_transform`, `_list`, `_convex_list`, `_mopp`, `_sphere`, `_box`, `_capsule`, `_convex`, `_mesh` | Collision shape nodes, appended by `recursive_convert` |
 | `_cylinder` | A `bhkCylinderShape`. This port only; ck-cmd converts none |
@@ -2886,6 +2887,7 @@ does not fit is:
 | `const_<node>\|<property>` | animation stack | A track holding one value for the whole take, typed so a boolean constant is not mistaken for a float one (§4.7.4) |
 | `flip_controllers`, `flip_<i>_type`, `flip_<i>_sources`, `flip_<i>_source_<n>` | node | A flipbook controller and the textures it cycles |
 | `constraint_type`, `constraint_wrapper`, `hkc_*` | attachment point | A Havok constraint; see `hkx-constraint-spec.md` |
+| `constraint_frame`, `constraint_body_a`, `constraint_body_b`, `coneMaxAngle` and the rest of §1.3 | attachment point | The parts of a joint HKFBX writes the same way, so one importer reads a ragdoll out of either a `skeleton.nif` or a `skeleton.hkx` |
 
 ### 5C.8 What is deliberately not carried
 
@@ -2953,6 +2955,8 @@ node to a sphere, a convex node to a hull. Nest the suffixes to nest the shapes.
 | `nif_rb_layer` | collision node | The collision filter's layer, default `SKYL_STATIC` |
 | `hkc_<field>` | constraint node | Any field of the constraint, flat |
 | `constraint_type`, `constraint_wrapper` | constraint node | Which constraint class, and its wrapper |
+| `constraint_frame` | constraint node | `"B"` on the joint, `"A"` on the child holding its far frame |
+| `constraint_body_a`, `constraint_body_b` | constraint node | The two bodies by name, for when the node's own name has been truncated |
 
 **The Havok material is an FBX material**, named after nif.xml's `SkyrimHavokMaterial`
 enum — `SKY_HAV_MAT_WOOD`, `SKY_HAV_MAT_STONE` — with a `CollisionLayer` string property

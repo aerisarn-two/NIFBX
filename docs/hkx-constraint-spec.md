@@ -346,6 +346,14 @@ six names in §1.3 do not describe a stiff spring, a ball and socket, or a chain
 prefers those when present and falls back to §3.3's names when not, so a scene from
 FBXWrangler still imports as a ragdoll or a limited hinge with its limits intact.
 
+§1.3's names are written **as well**, as floats, for the fields that have them —
+`coneMaxAngle`, `planeMinAngle`, `planeMaxAngle`, `twistMinAngle`, `twistMaxAngle`,
+`maxFriction`, `minAngle`, `maxAngle`. They are the same numbers a second time and cost
+eight properties. What they buy is that the joint is legible to a reader that has never
+seen nif.xml: HKFBX writes a creature's `skeleton.hkx` ragdoll under exactly these
+names, and the same ragdoll is in the creature's `skeleton.nif`. One importer now takes
+either file.
+
 ### 4.4 Frames
 
 The node's rotation follows ck-cmd's convention from §1.2 — the **transpose** of the
@@ -365,3 +373,32 @@ The A frame is **not** recomputed from the hierarchy. se-cmd records `Pivot A` a
 A-side axes in the `hkc_` properties, so §3.2's derivation — and the bug in it — is
 unnecessary for a scene se-cmd wrote. For a scene from ck-cmd the A frame is left at
 zero rather than derived, since the derivation as written produces `(x, x, x)`.
+
+### 4.5 Both frames as nodes
+
+A joint has two frames and a node's placement can only be one of them, which is the
+whole of §3.2's trouble. se-cmd writes the other as a **child** node of the attachment
+point, named with a `_frame_a` suffix and placed at the A frame:
+
+```
+<EntityB>_con_<EntityA>_attach_point     constraint_frame = "B"
+    <same>_frame_a                       constraint_frame = "A"
+```
+
+`constraint_frame` says which is which without depending on the name, and §2's
+substring test is narrowed by it: the child inherits its parent's name, `_con_` and
+all, so without the property it would be read as a second joint. Discovery skips a node
+whose `constraint_frame` is `"A"`.
+
+A scene from ck-cmd has no such child and no such property. Those still read as before
+— one frame, the far side left alone — which is why the test for a joint is the name
+and not the property.
+
+### 4.6 The bodies, by name
+
+`constraint_body_a` and `constraint_body_b` name the two bodies outright, beside the
+name that already encodes them. Blender caps an object name at 63 characters and
+replaces the overflow with a hash of itself, and a name carrying two body names and a
+suffix passes that easily, so a scene that has been through Blender comes back with the
+second half of the name gone. §3.1's parse is still tried first, because ck-cmd's scenes
+carry no such properties; the stated names win where they are present.
