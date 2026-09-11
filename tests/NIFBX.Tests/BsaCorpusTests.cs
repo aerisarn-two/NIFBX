@@ -281,19 +281,7 @@ namespace NIFBX.Tests
                     ? string.Join("; ", trouble)
                     : $"{difference}; {string.Join("; ", trouble)}";
             },
-            tolerated:
-            [
-                // The one mesh in the game whose collision cannot be rebuilt. Its
-                // compressed shape has two chunks and the first is a near-flat sliver --
-                // 0.049 by 0.007 by 0.063 metres, ten triangles -- which Havok will not
-                // build a MOPP for on its own, so the two-material split fails and the
-                // shape goes with it. ck-cmd builds these the same way and loses it too;
-                // the spec records what has been ruled out (§7.3).
-                //
-                // Named rather than allowed for by a ceiling, so that a *second* mesh
-                // losing its collision still fails. A share would absorb it.
-                "meshes/architecture/solitude/clutter/sbigplanter01.nif"
-            ]);
+            tolerated: []);
         }
 
         /// <summary>
@@ -1330,53 +1318,69 @@ namespace NIFBX.Tests
                         .Take(6)
                         .Select(g => $"{g.Key} x{g.Count()}"));
             },
+            tolerated: PaletteMeshes,
             ceiling: KnownFieldDivergence);
         }
 
         /// <summary>
-        /// The share of vanilla meshes known to differ in some field, as a ratchet.
+        /// The meshes whose object palette is not reproducible, named.
         /// </summary>
         /// <remarks>
-        /// A ceiling rather than a list because naming the meshes would be longer than
-        /// the code and would say less: what matters is that the number falls and never
-        /// rises. It has -- 400 of 600 on the first sweep that asked, 15,634 of 22,047
-        /// when it was first measured across the whole corpus, 207 after the animation
-        /// keys were carried whole, 92 once the skin weights were read from the copy the
-        /// game draws from, 54 once a partition listed the vertices it draws rather than
-        /// every vertex its shape has, 36 once a triangle that arrived degenerate
-        /// stayed degenerate, 31 once an object palette held one entry per name, 23 once
-        /// a curve sampled at a key's own time answered with that key, and 8 of 22,047
-        /// now.
+        /// A `NiDefaultAVObjectPalette` maps a name to the block a sequence means by it.
+        /// What the game puts in one is not known: "every named `NiAVObject` bar the
+        /// root" matches 322 of 419 vanilla palettes, and these three do the opposite --
+        /// each lists its root and leaves out an `InvMarker` that the rule includes.
+        ///
+        /// | Mesh | The palette holds | The rule holds |
+        /// | --- | --- | --- |
+        /// | `miraakboots_0` | the root, `MiraakBoots_0.nif` | `InvMarker` |
+        /// | `miraakboots_1` | the root, `MiraakBoots_1.nif` | `InvMarker` |
+        /// | `miraakrobesnoskin_0` | the root, and the first of two `InvMarker` | the second |
+        ///
+        /// Their order is not reproducible either: not the block order, and not a hash
+        /// bucket order for djb2 or sdbm at any table size from 2 to 512.
+        ///
+        /// Three meshes are not enough to overturn 419, so no rule is invented for them.
+        /// Named rather than allowed for by a share, so that a *fourth* mesh whose
+        /// palette drifts still fails -- which a ceiling would absorb.
+        /// </remarks>
+        private static readonly string[] PaletteMeshes =
+        [
+            "meshes/dlc02/clothes/miraakrobes/miraakboots_0.nif",
+            "meshes/dlc02/clothes/miraakrobes/miraakboots_1.nif",
+            "meshes/dlc02/clothes/miraakrobes/miraakrobesnoskin_0.nif"
+        ];
+
+        /// <summary>
+        /// The share of vanilla meshes allowed to differ beyond those, as a ratchet.
+        /// </summary>
+        /// <remarks>
+        /// Zero, which makes this a gate: every mesh the corpus holds either comes back
+        /// as it went in or is named above.
+        ///
+        /// It has been a ratchet all the way down -- 400 of 600 on the first sweep that
+        /// asked, 15,634 of 22,047 when it was first measured across the whole corpus,
+        /// 207 after the animation keys were carried whole, 92 once the skin weights
+        /// were read from the copy the game draws from, 54 once a partition listed the
+        /// vertices it draws rather than every vertex its shape has, 36 once a triangle
+        /// that arrived degenerate stayed degenerate, 31 once an object palette held one
+        /// entry per name, 23 once a curve sampled at a key's own time answered with
+        /// that key, 8, and now none that is not named.
         ///
         /// **Set it back down every time it falls.** At 0.72 against an actual 0.94% it
         /// was two orders of magnitude of slack: a change could have made seventy times
         /// as many meshes differ and the sweep would still have passed. A ratchet that
         /// is not tightened is a ratchet that has stopped being one.
         ///
-        /// Eight meshes, and they are worth naming because there is no cluster left:
-        ///
-        /// - `miraakboots_0`, `miraakboots_1`, `miraakrobesnoskin_0` and
-        ///   `rootthornhookactivator` name two nodes the same and the format addresses
-        ///   them by that name. An object palette holds one entry per name and a
-        ///   sequence resolves its targets through it, so the second node of a repeated
-        ///   name cannot be addressed at all -- and vanilla's own files disagree about
-        ///   which of the two an entry means.
-        /// - `dwelexiconstandcorrupt01` carries a corrupt string. The file is damaged.
-        /// - `sbigplanter01` loses its collision because mopper cannot build a MOPP
-        ///   tree for that geometry.
-        /// - `dlc2cycloneshoutprojectile02` and `norsecrmsmdoorsm02` differ in their
-        ///   controller chains and are the two still worth investigating.
-        ///
-        /// Geometry, skinning, animation keys and collision shapes have all left the
-        /// list.
-        ///
-        /// Set from the whole corpus and not from a sample, because the sample
-        /// flatters: `Sample` takes an equal count from each archive where the archives
-        /// are neither the same size nor equally divergent. Run the sweep sampled
-        /// against a ceiling set from a sample and it is a ratchet measuring its own
-        /// sampling.
+        /// What left the list since it was eight: `rootthornhookactivator` and
+        /// `norsecrmsmdoorsm02`, whose tracks bound to the first node of a repeated name
+        /// rather than the one their sequence names; `dwelexiconstandcorrupt01`, whose
+        /// corrupt string could not survive an FBX written in ASCII; and
+        /// `sbigplanter01`, which lost its collision because Havok will not index a
+        /// nine-millimetre sliver cut out of it by the material split. Geometry,
+        /// skinning, animation keys and collision shapes had all left before that.
         /// </remarks>
-        private const double KnownFieldDivergence = 0.0004;
+        private const double KnownFieldDivergence = 0;
 
         /// <summary>
         /// How the two files' blocks differ, ignoring the differences that are meant
