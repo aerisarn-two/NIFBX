@@ -398,7 +398,27 @@ and not the property.
 
 `constraint_body_a` and `constraint_body_b` name the two bodies outright, beside the
 name that already encodes them. Blender caps an object name at 63 characters and
-replaces the overflow with a hash of itself, and a name carrying two body names and a
-suffix passes that easily, so a scene that has been through Blender comes back with the
-second half of the name gone. §3.1's parse is still tried first, because ck-cmd's scenes
-carry no such properties; the stated names win where they are present.
+replaces the overflow with a hash of itself, so a scene that has been through Blender
+comes back with the second half of the name gone — and with it the owning body, which
+is the half §3.1 needs.
+
+Measured over the 1,632 constrained joints in the vanilla archives (213 meshes), **311
+of them — 19% — are already past the cap**. The worst is 96 characters:
+
+```
+Ragdoll_HorseFrontRLegMetacarpus01_rb_con_Ragdoll_HorseFrontRLegPhalangesManus01_rb_attach_point
+```
+
+Shortening the suffix does not fix this, which is worth saying because it is the
+obvious thing to try. The same corpus with `_ap` in place of `_attach_point` still has
+170 joints over the cap, and **116 are over it with no suffix at all**: two thirty-
+character Havok body names and `_con_` come to 65 before anything is appended. The
+suffix is not what spends the budget.
+
+It would also break §3.1 outright. `HKXWrangler.cpp:2826` trims by
+`sizeof("_attach_point")` — thirteen characters, unconditionally, without checking what
+the suffix actually is — so a name ending in `_ap` loses those three characters and ten
+more of the body name behind them, and ck-cmd then looks for `_con_` in the remains.
+
+Hence properties, which fix all 311. §3.1's parse is still tried first, because ck-cmd's
+scenes carry no such properties; the stated names win where they are present.
