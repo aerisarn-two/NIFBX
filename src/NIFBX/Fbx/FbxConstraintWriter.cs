@@ -77,6 +77,53 @@ namespace NIFBX.Fbx
             ["Axis B", "Perp Axis In B1", "Perp Axis In B2"]
         ];
 
+        /// <summary>The same axes on the other body, in the same orders.</summary>
+        private static readonly string[][] FarFrameAxes =
+        [
+            ["Twist A", "Plane A", "Motor A"],
+            ["Axis A", "Perp Axis In A1", "Perp Axis In A2"]
+        ];
+
+        /// <summary>Marks which side of the joint a node's transform is.</summary>
+        /// <remarks>
+        /// A joint has two frames, one per body, and the node's own placement can
+        /// only be one of them. HKFBX writes the far one as a child node and reads
+        /// it the same way, so a skeleton and a mesh carrying the same ragdoll say
+        /// it the same way too.
+        /// </remarks>
+        public const string FrameProperty = "constraint_frame";
+
+        /// <summary>Suffix on the node carrying the far frame.</summary>
+        public const string FarFrameSuffix = "_frame_a";
+
+        /// <summary>Names the body the joint moves.</summary>
+        public const string BodyAProperty = "constraint_body_a";
+
+        /// <summary>Names the body it hangs from.</summary>
+        public const string BodyBProperty = "constraint_body_b";
+
+        /// <summary>
+        /// The limits ck-cmd writes, and the descriptor fields they come from.
+        /// </summary>
+        /// <remarks>
+        /// Written beside the <c>hkc_</c> fields rather than instead of them. The
+        /// generic dump is what makes a NIF round trip byte-exact and it is keyed
+        /// by nif.xml's own names, which nothing outside this library knows; these
+        /// six are what ck-cmd's importrig and HKFBX both read, so a scene written
+        /// here can be opened by either.
+        /// </remarks>
+        private static readonly (string Property, string Field)[] SharedLimits =
+        [
+            ("coneMaxAngle", "Cone Max Angle"),
+            ("planeMinAngle", "Plane Min Angle"),
+            ("planeMaxAngle", "Plane Max Angle"),
+            ("twistMinAngle", "Twist Min Angle"),
+            ("twistMaxAngle", "Twist Max Angle"),
+            ("maxFriction", "Max Friction"),
+            ("minAngle", "Min Angle"),
+            ("maxAngle", "Max Angle"),
+        ];
+
         /// <summary>
         /// Writes one constraint, given the body nodes it joins.
         /// </summary>
@@ -117,6 +164,14 @@ namespace NIFBX.Fbx
 
             node.Properties.SetUserString(TypeProperty, TypeNameOf(model, constraint, descriptor));
 
+            // Said outright rather than left to be parsed out of the node's name:
+            // Blender caps a name at 63 characters and rewrites the overflow as a
+            // hash, which eats the end off any name long enough to carry two bone
+            // names and a suffix.
+            node.Properties.SetUserString(BodyAProperty, a.Name ?? string.Empty);
+            node.Properties.SetUserString(BodyBProperty, b.Name ?? string.Empty);
+            node.Properties.SetUserString(FrameProperty, "B");
+
             // A wrapped constraint's type property names the descriptor inside it,
             // which is what HKXWrangler expects to read. The wrapper is a separate
             // block and would otherwise be lost, so it is recorded beside it.
@@ -124,6 +179,17 @@ namespace NIFBX.Fbx
                 node.Properties.SetUserString(WrapperProperty, constraint.Name);
 
             WriteFields(model, descriptor, node, string.Empty);
+            WriteSharedLimits(model, descriptor, node);
+
+            // The far side of the joint, as a transform rather than as numbers.
+            // ck-cmd computes it and writes only the near one, so a joint exported
+            // through it comes back with half of itself.
+            if (FarFrameOf(model, descriptor) is { } far)
+            {
+                FbxObject farNode = FbxMeshWriter.AddModel(scene, name + FarFrameSuffix, "Null", far);
+                farNode.Properties.SetUserString(FrameProperty, "A");
+                scene.Connect(farNode, node);
+            }
 
             // The wrapper's own settings sit outside the descriptor: how much force
             // breaks it, and whether breaking removes it. The wrapper itself is
@@ -227,6 +293,62 @@ namespace NIFBX.Fbx
             }
 
             return new NifTransform(pivot, rotation, 1f);
+        }
+
+        /// <summary>
+        /// The joint as the moving body sees it, or null when the descriptor has no
+        /// such frame — a chain link, say, which has pivots and no axes at all.
+        /// </summary>
+        private static NifTransform? FarFrameOf(NifModel model, NifItem descriptor)
+        {
+            if (model.FindItem(descriptor, "Pivot A") is null) return null;
+
+            NifVector3 pivot = ScaledVector(model, descriptor, "Pivot A");
+            NifMatrix33 rotation = NifMatrix33.Identity;
+
+            foreach (string[] axes in FarFrameAxes)
+            {
+                if (!axes.All(axis => model.FindItem(descriptor, axis) is not null))
+                    continue;
+
+                NifVector3 x = Vector(model, descriptor, axes[0]);
+                NifVector3 y = Vector(model, descriptor, axes[1]);
+                NifVector3 z = Vector(model, descriptor, axes[2]);
+
+                if (Length(x) < 1e-6f || Length(y) < 1e-6f || Length(z) < 1e-6f)
+                    break;
+
+                rotation = new NifMatrix33
+                {
+                    M11 = x.X, M12 = y.X, M13 = z.X,
+                    M21 = x.Y, M22 = y.Y, M23 = z.Y,
+                    M31 = x.Z, M32 = y.Z, M33 = z.Z
+                };
+
+                break;
+            }
+
+            return new NifTransform(pivot, rotation, 1f);
+        }
+
+        /// <summary>
+        /// The limits again, under the names HKFBX writes them under.
+        /// </summary>
+        /// <remarks>
+        /// The string properties above are the whole descriptor and are what comes
+        /// back in on import. These few are the same numbers a second time, spelled
+        /// the way a skeleton.hkx joint spells them, so that one reader can take a
+        /// ragdoll joint whichever file it was exported from. Writing both costs
+        /// eight properties and saves the importer from knowing which tool wrote the
+        /// scene.
+        /// </remarks>
+        private static void WriteSharedLimits(NifModel model, NifItem descriptor, FbxObject node)
+        {
+            foreach ((string property, string field) in SharedLimits)
+            {
+                if (model.FindItem(descriptor, field) is { } item)
+                    node.Properties.SetUserFloat(property, item.Value.ToFloat());
+            }
         }
 
         /// <summary>
