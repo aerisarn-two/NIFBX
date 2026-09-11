@@ -160,14 +160,39 @@ namespace NIFBX.Tests
 
             NifModel rebuilt = converter.Convert(Db);
 
-            // The sweep's own comparison, not a second opinion. It knows which
-            // differences are meant to be there -- BSXFlags is calculated rather than
-            // carried, and the import writes the transform-carrying rigid body -- and
-            // a fast tool that disagreed with the slow one would be worse than no
-            // fast tool.
-            string? differences = BsaCorpusTests.CompareBlocks(source, rebuilt);
+            // Saved and reloaded before comparing, exactly as the sweep does: writing
+            // is where the format's own narrowing happens, and a model only built
+            // carries numbers no NIF can hold.
+            using var written = new MemoryStream();
+            rebuilt.Save(written);
+            written.Position = 0;
+            rebuilt = NifModel.Load(written, Db);
 
-            Console.WriteLine(differences is null ? $"{name}: matches" : $"{name}: {differences}");
+            // Both of the sweep's comparisons, not a second opinion: the blocks it
+            // kept, and the fields it filled them with. A fast tool that disagreed
+            // with the slow one would be worse than no fast tool.
+            string? blocks = BsaCorpusTests.CompareBlocks(source, rebuilt);
+
+            List<NifDifference> fields = RoundTripBaseline.Unexplained(source, rebuilt);
+
+            string census = string.Join(
+                ", ",
+                fields.GroupBy(d => d.Field)
+                    .OrderByDescending(g => g.Count())
+                    .Take(6)
+                    .Select(g => $"{g.Key} x{g.Count()}"));
+
+            Console.WriteLine(
+                (blocks, fields.Count) switch
+                {
+                    (null, 0) => $"{name}: matches",
+                    (null, _) => $"{name}: {census}",
+                    (_, 0) => $"{name}: {blocks}",
+                    _ => $"{name}: {blocks}; {census}"
+                });
+
+            foreach (NifDifference d in fields.Take(12))
+                Console.WriteLine($"    {d.Path} {d.Field}: {d.Left} -> {d.Right}");
 
             foreach (string warning in converter.Warnings)
                 Console.WriteLine($"    {warning}");

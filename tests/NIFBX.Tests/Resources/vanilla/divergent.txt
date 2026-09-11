@@ -1,1 +1,7 @@
-meshes/dlc01/sky/dlceclipsesky.nif
+meshes/architecture/solitude/clutter/sbigplanter01.nif
+meshes/creationclub/_shared/plants/rootthornhookactivator.nif
+meshes/dlc02/clothes/miraakrobes/miraakboots_0.nif
+meshes/dlc02/clothes/miraakrobes/miraakboots_1.nif
+meshes/dlc02/clothes/miraakrobes/miraakrobesnoskin_0.nif
+meshes/dungeons/dwemer/animated/astrolabe/lexiconstand/dwelexiconstandcorrupt01.nif
+meshes/dungeons/nordic/secretpass/animated/rmsmdoor02/norsecrmsmdoorsm02.nif
