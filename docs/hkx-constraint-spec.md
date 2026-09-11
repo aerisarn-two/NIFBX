@@ -374,6 +374,10 @@ A-side axes in the `hkc_` properties, so §3.2's derivation — and the bug in i
 unnecessary for a scene se-cmd wrote. For a scene from ck-cmd the A frame is left at
 zero rather than derived, since the derivation as written produces `(x, x, x)`.
 
+See `dcc-constraint-interop-spec.md` for why no `FbxConstraint` object is written
+alongside these properties, and how a script in Maya, Max or Blender turns them into a
+native constraint on arrival.
+
 ### 4.5 Both frames as nodes
 
 A joint has two frames and a node's placement can only be one of them, which is the
