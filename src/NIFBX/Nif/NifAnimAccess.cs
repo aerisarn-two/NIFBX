@@ -464,8 +464,10 @@ namespace NIFBX.Nif
 
             if (model.FindItem(block, "Controlled Blocks") is { } controlled)
             {
+                Dictionary<string, NifItem> named = NamedNodesOf(model, controlled);
+
                 foreach (NifItem entry in controlled.Children)
-                    ReadControlledBlock(model, entry, tracks);
+                    ReadControlledBlock(model, entry, tracks, named);
             }
 
             sequence.Tracks.AddRange(tracks.Values.Where(t => t.Says));
@@ -485,6 +487,48 @@ namespace NIFBX.Nif
         }
 
         /// <summary>
+        /// Which block each name in a sequence means, where its entries say.
+        /// </summary>
+        /// <remarks>
+        /// A sequence names its nodes as strings and a NIF may give two nodes one
+        /// name, so the string alone cannot say which is meant. Some entries carry the
+        /// answer: a controller of its own, pointing at the block it drives.
+        ///
+        /// Resolved once for the whole sequence rather than per entry, because a node's
+        /// entries do not all carry it. A transform entry rides the fan-out controller,
+        /// which targets the sequence's root and names no node at all, while the
+        /// property entries beside it point straight at theirs. Asked separately, one
+        /// node's entries split into two tracks — `norsecrmsmdoorsm02` put `Amulet01`'s
+        /// visibility on the node its controller names and `Amulet01`'s transform on
+        /// the other node of that name, and built a second chain for it.
+        ///
+        /// **Only where the block carries the name the entry states.** A controller
+        /// aiming at the root instead is the common case, not evidence, and taking it
+        /// bound every track in the file to the root.
+        /// </remarks>
+        private static Dictionary<string, NifItem> NamedNodesOf(NifModel model, NifItem controlled)
+        {
+            var named = new Dictionary<string, NifItem>(StringComparer.Ordinal);
+
+            foreach (NifItem entry in controlled.Children)
+            {
+                string name = ReadTargetName(model, entry);
+
+                if (name.Length == 0 || named.ContainsKey(name))
+                    continue;
+
+                if (model.GetRef(entry, "Controller") is { } owner
+                    && model.GetRef(owner, "Target") is { } aimed
+                    && model.GetName(aimed) == name)
+                {
+                    named[name] = aimed;
+                }
+            }
+
+            return named;
+        }
+
+        /// <summary>
         /// Files one controlled block under the node it targets.
         /// </summary>
         /// <remarks>
@@ -494,7 +538,10 @@ namespace NIFBX.Nif
         /// are the only record of which.
         /// </remarks>
         private static void ReadControlledBlock(
-            NifModel model, NifItem controlled, Dictionary<object, AnimTrack> tracks)
+            NifModel model,
+            NifItem controlled,
+            Dictionary<object, AnimTrack> tracks,
+            Dictionary<string, NifItem> named)
         {
             NifItem? interpolator = model.GetRef(controlled, "Interpolator");
 
@@ -506,18 +553,8 @@ namespace NIFBX.Nif
             if (name.Length == 0)
                 return;
 
-            // Which block the entry means, when its own controller both says and agrees.
-            //
-            // **Only when the block carries the name the entry states.** A controller
-            // may target the sequence's root instead -- every one in a model built
-            // through the authoring API does -- and taking it unconditionally bound
-            // every track in the file to the root, which 28 fixtures said so about.
-            // Agreeing with the string is what tells the two cases apart.
-            NifItem? target = model.GetRef(controlled, "Controller") is { } owner
-                              && model.GetRef(owner, "Target") is { } aimed
-                              && TrackName(model, aimed) == name
-                ? aimed
-                : null;
+            // Which block the entry means, as the sequence's own entries settle it.
+            NifItem? target = named.GetValueOrDefault(name);
 
             if (model.BlockInherits(interpolator, "NiTransformInterpolator"))
             {
