@@ -2029,6 +2029,41 @@ namespace NIFBX.Conversion
             CompressedMeshResult? built = generator.GenerateCompressedMesh(
                 pieces, Math.Max(materials.Count, 1));
 
+            // Splitting by material can cut a piece Havok will not index on its own.
+            //
+            // It refuses a chunk that is too thin in any one axis. `sbigplanter01`
+            // divides into ten triangles of one material and 136 of another, and those
+            // ten are the planter's rim: eight tenths of a metre across and nine
+            // millimetres deep. Stretching that axis and asking again puts the
+            // threshold between 0.09 and 0.18 metres -- so it is the shape of the
+            // piece, not anything about the triangles, and no retry will change it.
+            //
+            // Together the two pieces are an ordinary solid and build at once. So when
+            // the split is what failed, the mesh is handed over whole and Havok chunks
+            // it as it sees fit. The alternative was returning null here, which drops
+            // the `bhkCollisionObject` and the rigid body with it and leaves the planter
+            // with no collision at all.
+            //
+            // The material table is written as it stands either way: it says which
+            // materials the shape has, which is still true of both of them, and the
+            // chunks index into it. Truncating it to the one material the single piece
+            // declares lost `Num Materials` and an entry of `Chunk Materials`; left
+            // alone, the mesh comes back as the file it went in as.
+            if (built is null && pieces.Count > 1)
+            {
+                var whole = new MoppGeometry(vertices, mesh.Triangles);
+
+                if (generator.GenerateCompressedMesh([whole], 1) is { } unsplit)
+                {
+                    Warnings.Add(
+                        $"{name}: Havok would not index this mesh split into {pieces.Count} "
+                        + "by material, so it is indexed whole");
+
+                    pieces = [whole];
+                    built = unsplit;
+                }
+            }
+
             if (built is null)
             {
                 Warnings.Add(
