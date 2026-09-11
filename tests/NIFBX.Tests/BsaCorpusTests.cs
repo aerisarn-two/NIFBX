@@ -61,7 +61,7 @@ namespace NIFBX.Tests
         /// runs on whoever happens to have it installed, which is how a five-minute
         /// sweep ends up in somebody else's ordinary build.
         /// </remarks>
-        private static string? DataFolder()
+        internal static string? DataFolder()
         {
             string? configured = Environment.GetEnvironmentVariable("SECMD_SKYRIM_DATA");
 
@@ -1739,7 +1739,7 @@ namespace NIFBX.Tests
         ///
         /// FNV-1a, because any stable hash will do and this one is four lines.
         /// </remarks>
-        private static uint StableHash(string text)
+        internal static uint StableHash(string text)
         {
             uint hash = 2166136261;
 
