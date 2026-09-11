@@ -147,6 +147,17 @@ namespace NIFBX.Fbx
                 // and a track drives one of them, which a lookup by string cannot say.
                 FbxObject? model = modelFor(track);
 
+                // Which object the name meant, for everything below that is keyed by
+                // name alone. Written before any of them, so a constant-only track --
+                // which reaches the file as stack properties and nothing else -- still
+                // says which node it drives.
+                if (model is not null)
+                {
+                    stack.Properties.SetUserString(
+                        NodeIdKey(track.NodeName),
+                        model.Id.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                }
+
                 // Keys need a model, whether they move the node itself or one of its
                 // properties. Reporting only the second let a whole transform track
                 // vanish without a word -- a falmer scorpion lost one from every
@@ -275,6 +286,25 @@ namespace NIFBX.Fbx
         public static string ControllerPhaseKey(string nodeName, AnimProperty property) =>
             $"{ControllerPhasePrefix}{nodeName}{AnimProperty.Separator}"
             + $"{property.ControllerType}{AnimProperty.Separator}{property.ControllerId}";
+
+        /// <summary>Prefix on a stack property naming the object a track drives.</summary>
+        /// <remarks>
+        /// Everything on the stack above is keyed by the node's *name*, and a NIF may
+        /// give two nodes one name. A curve says which it means -- it connects to an
+        /// object by id -- and a carried entry records the id beside the name, but a
+        /// track that holds only a constant has neither: it is stack properties and
+        /// nothing else. `rootthornhookactivator` names an `NiNode` after its own root,
+        /// so its visibility constant matched both and was rebuilt on the root, which
+        /// hides the whole model rather than the one node.
+        ///
+        /// One per node per stack, beside the keys that need it rather than folded into
+        /// them, so every existing key keeps its shape and a file written before this
+        /// still reads.
+        /// </remarks>
+        public const string NodeIdPrefix = "nodeid_";
+
+        /// <summary>The key a track's object id rides under.</summary>
+        public static string NodeIdKey(string nodeName) => $"{NodeIdPrefix}{nodeName}";
 
         public const string ConstantPrefix = "const_";
 

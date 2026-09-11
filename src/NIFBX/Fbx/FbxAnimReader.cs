@@ -63,12 +63,28 @@ namespace NIFBX.Fbx
         }
 
         /// <summary>That track, or a new one filed under the name.</summary>
-        private static AnimTrack FindOrAdd(Dictionary<string, AnimTrack> tracks, string nodeName)
+        /// <remarks>
+        /// Carrying the object the export bound the name to, when it said. These tracks
+        /// are built from stack properties keyed by name, and a NIF may hold two nodes
+        /// of one name -- without the id the import binds to whichever comes first,
+        /// which for `rootthornhookactivator` is the root rather than the node beside
+        /// it that shares its name.
+        /// </remarks>
+        private static AnimTrack FindOrAdd(
+            FbxObject stack, Dictionary<string, AnimTrack> tracks, string nodeName)
         {
             if (Find(tracks, nodeName) is { } found)
                 return found;
 
-            var track = new AnimTrack { NodeName = nodeName };
+            long bindId = long.TryParse(
+                stack.Properties.GetString(FbxAnimWriter.NodeIdKey(nodeName)),
+                System.Globalization.NumberStyles.Integer,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out long carried)
+                ? carried
+                : 0;
+
+            var track = new AnimTrack { NodeName = nodeName, BindId = bindId };
             tracks[nodeName] = track;
             return track;
         }
@@ -111,7 +127,7 @@ namespace NIFBX.Fbx
                 if (float.IsNaN(value))
                     continue;
 
-                AnimTrack track = FindOrAdd(tracks, nodeName);
+                AnimTrack track = FindOrAdd(stack, tracks, nodeName);
 
                 (string type, string id, string interpolatorId, string propertyType) =
                     AnimProperty.FromPropertyName(propertyName);
@@ -225,7 +241,7 @@ namespace NIFBX.Fbx
                 string nodeName = rest[..bar];
                 string propertyName = rest[(bar + 1)..];
 
-                AnimTrack track = FindOrAdd(tracks, nodeName);
+                AnimTrack track = FindOrAdd(stack, tracks, nodeName);
 
                 (string type, string id, string interpolatorId, string propertyType) =
                     AnimProperty.FromPropertyName(propertyName);
@@ -277,7 +293,7 @@ namespace NIFBX.Fbx
                 if (!ok)
                     continue;
 
-                AnimTrack track = FindOrAdd(tracks, nodeName);
+                AnimTrack track = FindOrAdd(stack, tracks, nodeName);
 
                 track.Pose = new AnimPose(
                     new NifVector3(numbers[0], numbers[1], numbers[2]),
