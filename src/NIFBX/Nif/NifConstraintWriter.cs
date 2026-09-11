@@ -226,6 +226,36 @@ namespace NIFBX.Nif
                 break;
             }
 
+            // The far side, when the scene states it. ck-cmd's do not, and a
+            // constraint from one of those keeps whatever the descriptor already
+            // had rather than being given an identity frame it never had.
+            if (constraint.FrameA is { } farFrame)
+            {
+                NifVector3 farPivot = farFrame.Translation;
+
+                SetVector(model, descriptor, "Pivot A", new NifVector3(
+                    farPivot.X / ShapeTessellator.BhkScaleFactor,
+                    farPivot.Y / ShapeTessellator.BhkScaleFactor,
+                    farPivot.Z / ShapeTessellator.BhkScaleFactor));
+
+                NifMatrix33 far = farFrame.Rotation;
+
+                foreach (string[] axes in new[]
+                         {
+                             new[] { "Twist A", "Plane A", "Motor A" },
+                             ["Axis A", "Perp Axis In A1", "Perp Axis In A2"]
+                         })
+                {
+                    if (model.FindItem(descriptor, axes[0]) is null)
+                        continue;
+
+                    SetVector(model, descriptor, axes[0], new NifVector3(far.M11, far.M21, far.M31));
+                    SetVector(model, descriptor, axes[1], new NifVector3(far.M12, far.M22, far.M32));
+                    SetVector(model, descriptor, axes[2], new NifVector3(far.M13, far.M23, far.M33));
+                    break;
+                }
+            }
+
             foreach ((string property, string field) in LegacyFields)
             {
                 if (constraint.Legacy.TryGetValue(property, out string? text)

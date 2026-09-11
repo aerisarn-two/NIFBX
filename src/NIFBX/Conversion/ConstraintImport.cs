@@ -50,6 +50,17 @@ namespace NIFBX.Conversion
         public NifTransform FrameB { get; init; } = NifTransform.Identity;
 
         /// <summary>
+        /// The joint as the moving body sees it, when the scene states it.
+        /// </summary>
+        /// <remarks>
+        /// A joint has two frames and a node's placement can only be one of them, so
+        /// the other rides on a child node. Null means the scene did not say: ck-cmd
+        /// writes the near frame and drops this one, and a constraint imported from
+        /// such a scene keeps whatever the template already had.
+        /// </remarks>
+        public NifTransform? FrameA { get; init; }
+
+        /// <summary>
         /// The descriptor, field by field, keyed as the writer named it.
         /// </summary>
         /// <remarks>

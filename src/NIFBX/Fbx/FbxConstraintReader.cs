@@ -37,7 +37,11 @@ namespace NIFBX.Fbx
         /// </remarks>
         public static bool IsAttachmentPoint(FbxObject node) =>
             node.Class == "Model"
-            && node.Name.Contains(FbxConstraintWriter.NameSeparator, StringComparison.Ordinal);
+            && node.Name.Contains(FbxConstraintWriter.NameSeparator, StringComparison.Ordinal)
+            // The node carrying the far frame is a child of an attachment point and
+            // inherits its name, separator and all. It is half of a joint, not
+            // another one.
+            && node.Properties.GetString(FbxConstraintWriter.FrameProperty) != "A";
 
         private static ConstraintImport? Read(FbxScene scene, FbxObject node)
         {
@@ -60,6 +64,17 @@ namespace NIFBX.Fbx
             string other = name[..at];
             string owner = name[(at + FbxConstraintWriter.NameSeparator.Length)..];
 
+            // Unless the joint says so itself, which is better than either: Blender
+            // caps an object name at 63 characters and rewrites the overflow as a
+            // hash, so a name carrying two bone names and a suffix comes back
+            // truncated. Written by this library and by HKFBX; absent from ck-cmd's
+            // scenes, which is why the name is still read first.
+            string statedOwner = node.Properties.GetString(FbxConstraintWriter.BodyAProperty);
+            string statedOther = node.Properties.GetString(FbxConstraintWriter.BodyBProperty);
+
+            if (statedOwner.Length > 0) owner = statedOwner;
+            if (statedOther.Length > 0) other = statedOther;
+
             if (owner.Length == 0)
                 return null;
 
@@ -78,7 +93,8 @@ namespace NIFBX.Fbx
                         : ParentName(scene, node),
                 ChainedNames = [.. node.Properties.GetString(FbxConstraintWriter.ChainedProperty)
                     .Split(FbxConstraintWriter.NameSeparator, StringSplitOptions.RemoveEmptyEntries)],
-                FrameB = ReadTransform(node)
+                FrameB = ReadTransform(node),
+                FrameA = FarFrameOf(scene, node),
             };
 
             foreach (FbxProperty70 property in node.Properties.All)
@@ -96,6 +112,21 @@ namespace NIFBX.Fbx
 
             return constraint;
         }
+
+        /// <summary>
+        /// The joint as the moving body sees it, from the child node that carries it.
+        /// </summary>
+        /// <remarks>
+        /// Absent from ck-cmd's scenes, which write the near frame and drop this one,
+        /// so a null here means "not stated" rather than "identity".
+        /// </remarks>
+        private static NifTransform? FarFrameOf(FbxScene scene, FbxObject node) =>
+            scene.ChildrenOf(node.Id)
+                .FirstOrDefault(child =>
+                    child.Properties.GetString(FbxConstraintWriter.FrameProperty) == "A")
+            is { } far
+                ? ReadTransform(far)
+                : null;
 
         private static string ParentName(FbxScene scene, FbxObject node) =>
             scene.ParentsOf(node.Id).FirstOrDefault() is { } parent
