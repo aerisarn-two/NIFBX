@@ -172,7 +172,9 @@ namespace NIFBX.Fbx
                 alpha.EditorAlphaThreshold ? 1 : 0);
 
             // Named for Blender, which surfaces a short here.
-            properties.Set("alpha_test_threshold", "Short", "", FbxProperties.UserFlags, (int)alpha.Threshold);
+            // `int`, not `Short`: FBX has no such user property type, and a reader that
+            // meets one either warns and drops the value or stops reading.
+            properties.Set("alpha_test_threshold", "int", "", FbxProperties.UserFlags, (int)alpha.Threshold);
         }
 
         private static void AddTextures(

@@ -644,7 +644,14 @@ namespace NIFBX.Fbx
                 },
                 string.Empty,
                 FbxProperties.UserFlags,
-                (double)value);
+
+                // A boolean carries an integer, whatever the number means. FBX says a
+                // user property's type and then its value, and a reader is entitled to
+                // hold them to each other: Blender asserts that a `bool` is an `I` and
+                // gives up on the whole file when it is a `D` -- not this property, not
+                // this object, the file. Every mesh with a boolean track -- an emitter
+                // switching on, anything that hides itself -- failed to open.
+                property.IsBoolean ? (object)(value != 0f ? 1 : 0) : (double)value);
         }
 
         /// <summary>
@@ -686,7 +693,11 @@ namespace NIFBX.Fbx
             else
             {
                 model.Properties.Set(
-                    name, property.IsBoolean ? "bool" : "Number", string.Empty, "A+U", First(0));
+                    name,
+                    property.IsBoolean ? "bool" : "Number",
+                    string.Empty,
+                    "A+U",
+                    property.IsBoolean ? (object)(First(0) != 0d ? 1 : 0) : First(0));
             }
 
             FbxObject node = scene.AddObject("AnimationCurveNode", name, string.Empty);
