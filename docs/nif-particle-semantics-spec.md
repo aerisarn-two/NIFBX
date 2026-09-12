@@ -3,7 +3,8 @@
 `nif-particle-spec.md` asks what a particle system *holds* and whether FBX can carry it.
 This asks a different question: **what the engine does with the graph**, and therefore
 which graphs are legal. It is the document to read before writing a particle system
-rather than before reading one.
+rather than before reading one, and §4 is worked recipes: five of the game's own effects
+taken apart, with what each number does to the look of the thing.
 
 Four sources, in descending order of authority:
 
@@ -14,7 +15,7 @@ Four sources, in descending order of authority:
 | **The corpus** | 1,704 particle systems in 899 of the game's 22,047 meshes: what Bethesda actually ships, which is narrower than what is legal. |
 | **NifSkope, GECK wiki** | conventions and one hard crash rule. |
 
-Where they disagree, the source wins and the disagreement is recorded — §6 does exactly
+Where they disagree, the source wins and the disagreement is recorded — §7 does exactly
 that to the GECK wiki's claim about controller chains.
 
 ---
@@ -88,7 +89,7 @@ Two consequences worth stating plainly:
 - **The order of the `Modifiers` array in the file does not decide execution order.**
   `Order` does. A file whose array disagrees with its `Order` values runs in `Order`
   sequence regardless, and is written back re-sorted. (Every vanilla file already agrees
-  with itself — see §6 — so this never bites until something writes one that does not.)
+  with itself — see §7 — so this never bites until something writes one that does not.)
 - **Ties keep file order.** The test is strictly `>`, so a modifier is inserted after
   every equal-ordered modifier already present. Three `NiPSysDragModifier`s all at 4000
   run in the order the array lists them — which is why a file may hold several of one
@@ -143,7 +144,148 @@ forces, colliders, final — and where a modifier lands says what kind of thing 
 
 ---
 
-## 4. Controllers: how one binds to a modifier
+---
+
+## 4. Recipes: building an effect that works
+
+Everything below is read out of a shipped file. The units are the ones the format
+uses: **speed in game units per second**, **life span in seconds**, **angles in
+radians**, **radii in game units**. A `Variation` field is a symmetric ± range around
+its base.
+
+Three things govern the look of any of them, before any modifier is added:
+
+| | |
+| --- | --- |
+| `Speed` ± `Speed Variation` | how hard particles are thrown |
+| `Declination` ± `Declination Variation` | the half-angle of the cone off the emitter's axis — `0.1745` is 10°, `3.14159` is every direction |
+| `Planar Angle Variation` | how far round the axis they may go; π means the full circle |
+
+And `Life Span` ± `Life Span Variation` decides how far they get, because nothing stops
+a particle but age.
+
+### 4.1 A candle flame — the smallest complete effect
+
+`meshes/mps/mpscandleflame01.nif`, two systems layered:
+
+```
+CandleFlame01                            396 particles, 4 sub-texture frames
+  NiPSysBoxEmitter    speed 7.5 ±1.8   declination var 0.209 (12°)
+                      planar var π      radius 1.25 ±0.16   life 0.333
+  BSPSysSimpleColorModifier             fade in and out over life
+  BSPSysScaleModifier                   grow over life
+
+CandleGlow01                             320 particles, no sub-texture
+  NiPSysBoxEmitter    speed 6 ±1.8                          radius 80
+                      life 0.4
+  BSPSysSimpleColorModifier
+```
+
+The grammar of it: **a narrow, slow, short-lived cone for the flame, and a second
+system of one very large soft sprite for the glow.** The glow has no scale modifier and
+no sub-texture — it is one big billboard whose only job is to brighten what is near it.
+A radius of 80 against the flame's 1.25 is the whole difference.
+
+Note there is no force of any kind. At 0.333 seconds and 7.5 units per second a
+particle travels two and a half units; gravity would not be visible if it were there.
+
+### 4.2 A spark fountain — a cone plus a sprite sheet
+
+`meshes/effects/fxsparkfountain.nif`:
+
+```
+NiPSysBoxEmitter    speed 300 ±90   declination var 0.1745 (10°)
+                    planar var π     radius 2         life 2
+BSPSysSubTexModifier  end frame 15, of 42
+NiPSysGravityModifier gravity axis (0,0,1)
+```
+
+Forty times the candle's speed through a *narrower* cone, and six times the life: that
+is what makes a fountain rather than a flame. `Initial Radius 2` keeps each spark a
+point.
+
+`BSPSysSubTexModifier` is what makes a spark look like a spark — the sprite is a sheet
+of 42 frames and each particle plays frames 0–15 of it over its life. Sub-texture
+animation is how Skyrim gets detail out of a billboard, and every convincing effect in
+the game uses it.
+
+### 4.3 Isotropic drag is three modifiers, not one
+
+`meshes/effects/fxsteamjet.nif`:
+
+```
+NiPSysDragModifier 'NiPSysDragModifier(X-Axis)'   percentage 0.07   drag axis (1,0,0)
+NiPSysDragModifier 'NiPSysDragModifier(Y-Axis)'   percentage 0.07   drag axis (0,1,0)
+NiPSysDragModifier 'NiPSysDragModifier(Z-Axis)'   percentage 0.07   drag axis (0,0,1)
+```
+
+**A `NiPSysDragModifier` damps along one axis only.** Drag in every direction is three
+of them, one per axis, identical but for `Drag Axis`, all at `Order` 4000 — which is why
+`NiPSysDragModifier` is the commonest modifier in the game at 2,245 instances across
+1,704 systems, and why the names carry the axis. They are told apart by name alone, and
+each has its own `NiPSysModifierActiveCtlr` so the animation can switch the three
+together.
+
+This is the single most copied idiom in Skyrim's effects. If a puff of something should
+slow down as it travels, it is three drag modifiers at 0.03 to 0.07.
+
+### 4.4 Gravity's strength is not in the gravity modifier
+
+Of the 615 `NiPSysGravityModifier`s in the game's effect directories, **every one stores
+`Gravity Strength = 0`**. 543 have no controller at all, and are inert: they occupy a
+slot and do nothing. The other 72 are driven by a `NiPSysGravityStrengthCtlr`, and the
+strength exists only in the animation.
+
+So: to make something fall or rise, do not set the field. Add the modifier with a
+strength of zero, give it a name, and animate it with a `NiPSysGravityStrengthCtlr`
+naming that modifier. A positive strength along `(0,0,1)` lifts — which is how smoke
+rises — and a negative one drops.
+
+A converter that writes a static non-zero strength produces a file unlike any Bethesda
+ships. One that drops the inert modifiers changes the modifier list an animation may
+later name.
+
+### 4.5 A campfire — three systems, one fire
+
+`meshes/clutter/woodfires/campfire01burning.nif` is the pattern for anything that burns:
+
+| system | emitter | life | what it contributes |
+| --- | --- | --- | --- |
+| `FlamesSmall03` | cylinder r 20, speed 45 ±40.5, radius 16 | 0.47 ±0.13 | the flame: fast, short, wide speed variation so tongues differ |
+| `Firearticles` | cylinder r 32, speed 60 ±12, radius 20 | 1.0 ±0.2 | embers: 64-frame sheet, twice the life, tight speed |
+| `smoke02` | cylinder r 16, speed 60 ±12, radius 10 | 2.0 ±0.4 | smoke: four times the flame's life, smallest radius at birth, grows |
+
+Read down the life-span column and the recipe is plain: **each layer lives longer and
+starts smaller than the one below it.** The flame is brief and broad, the embers persist,
+the smoke outlasts everything and expands. All three use a *cylinder* emitter, because
+a fire is a disc on the ground rather than a point.
+
+Each carries its own `NiPSysRotationModifier` with `Rotation Speed 0.2618` (15°/s) and
+`Random Rot Speed Sign = 1`, so every particle spins slowly in a random direction —
+which is what stops a sheet of identical billboards reading as a repeating texture.
+
+### 4.6 The skeleton to start from
+
+Every working system in the game is this, with the middle filled in:
+
+```
+NiPSysAgeDeathModifier       order 0      required: nothing else removes particles
+BSPSysLODModifier            order 1      required in practice: all 1,704 have one
+<one emitter>                order 1000   box, cylinder, sphere or mesh
+NiPSysSpawnModifier          order 1000   required in practice: all 1,704 have one
+BSPSysSimpleColorModifier    order 3000   fade in and out; 1,666 of 1,704
+  … rotation, scale, sub-texture, drag ×3, gravity …
+NiPSysPositionModifier       order 6000   required: nothing else moves particles
+NiPSysBoundUpdateModifier    order 7000   required: without it the bound never grows
+```
+
+plus a controller chain ending in `NiPSysUpdateCtlr`, and an emitter controller carrying
+the birth rate. Leave out `NiPSysPositionModifier` and the particles are born and never
+move; leave out `NiPSysAgeDeathModifier` and they never die.
+
+---
+
+## 5. Controllers: how one binds to a modifier
 
 A `NiPSysModifierCtlr` targets the **particle system**, not the modifier, and names the
 modifier it drives as a string:
@@ -187,7 +329,7 @@ have run first. A file that puts it elsewhere is silently repaired on load.
 
 ---
 
-## 5. Hard rules
+## 6. Hard rules
 
 Things that are not style:
 
@@ -199,11 +341,11 @@ Things that are not style:
 3. **Modifier names must be unique within a system.** `GetModifierByName` returns the
    first match, so a repeat is unreachable.
 4. **A controller's `Modifier Name` must resolve**, per `InterpTargetIsCorrectType`.
-5. **`NiPSysUpdateCtlr` belongs last**, per §4.
+5. **`NiPSysUpdateCtlr` belongs last**, per §5.
 
 ---
 
-## 6. What Bethesda actually ships
+## 7. What Bethesda actually ships
 
 Legal and conventional are different, and the corpus says what the convention is.
 1,704 systems, 899 files.
@@ -262,7 +404,7 @@ and bomb, never an emitter, though nothing in the format forbids it. And
 **`BSPSysMultiTargetEmitterCtlr` never targets a mesh emitter**: it is the multi-target
 variant, and a mesh emitter already has its own object.
 
-No controller in the game names a modifier that is not there — rule 4 of §5 holds across
+No controller in the game names a modifier that is not there — rule 4 of §6 holds across
 the corpus.
 
 ### `NiPSysUpdateCtlr` is exactly one per system, and always last
@@ -282,7 +424,7 @@ file it had itself written in some other sequence.
 
 Of 1,704 systems: **no null modifier links**, **no duplicate modifier names within a
 system**, and **no controller naming a modifier that is not there**. The four hard rules
-of §5 that can be checked statically are satisfied by every shipped file.
+of §6 that can be checked statically are satisfied by every shipped file.
 
 Modifiers per band, which is the shape of a Skyrim particle system in one table:
 
@@ -324,7 +466,7 @@ except the one rule that `NiPSysUpdateCtlr` ends it.
 
 ---
 
-## 7. What this means for a converter
+## 8. What this means for a converter
 
 - **Carry `Order`, do not derive it.** It is a number in the file, the engine sorts on
   it, and the array order is not a substitute. That every class happens to use one value
