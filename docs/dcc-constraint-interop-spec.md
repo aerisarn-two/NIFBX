@@ -56,18 +56,24 @@ as a `Null` model with properties, and there is no alternative.
 
 ### 2.1 Blender — nothing, in both directions
 
-`io_scene_fbx` as shipped with Blender 5.0.1 contains **zero occurrences of the string
-"constraint"** across all eleven of its Python modules. The importer's object dispatch
-handles exactly seven classes:
+Blender 5.0 ships **two** FBX importers, and the conclusion is the same for both.
+
+The Python one, `io_scene_fbx`, contains **zero occurrences of the string "constraint"**
+across all eleven of its modules. Its object dispatch handles exactly seven classes:
 
 ```
 Geometry, Material, Video, Texture, NodeAttribute, Model, Pose
 ```
 
-An `FbxConstraint` of any type is read past and discarded. The exporter never writes
-one. There is likewise no `rigid_body` handling in either direction, so Blender's own
-rigid body constraints — which are otherwise a good match, see §5.1 — do not survive
-export either.
+The other is new in 4.5 and 5.0: a C++ importer built on the `ufbx` library, registered
+as `bpy.ops.wm.fbx_import` and 3-15x faster. It is the one to target — it is what
+`import_scene.fbx` now reaches, and it is where custom property handling was verified
+for this spec. It has no constraint support either, and could not usefully have any:
+Blender has nothing to map an `FbxConstraint` onto.
+
+The Python exporter is still the only exporter, and it never writes one. There is
+likewise no `rigid_body` handling in either direction, so Blender's own rigid body
+constraints — otherwise a good match, see §5.1 — do not survive export either.
 
 ### 2.2 Maya — six types, none of them useful here
 
@@ -213,6 +219,14 @@ ANGULAR:  use_limit_ang_x/y/z, limit_ang_{x,y,z}_{lower,upper}
 `object1`/`object2` are genuine pointer properties, and the angular limits are
 **asymmetric** (`lower` and `upper` independently), which matches Havok exactly.
 
+Use `GENERIC` throughout, including for a hinge, where `HINGE` looks like the obvious
+choice and is the wrong one: **Blender's `HINGE` turns about the constraint's Z axis
+while Havok's hinge axis is the frame's X.** Choosing it would mean rotating the frame a
+quarter turn on the way in and un-rotating it on the way out, for nothing. `GENERIC` is a
+six-degree-of-freedom joint whose three angular limits sit on the frame's own axes —
+which is what Havok's atoms are — so the frame passes through untouched and a locked axis
+is a limit of zero. `POINT` for a ball and socket, where the frame does not matter.
+
 **Maya** — the Bullet plug-in's rigid body constraint: Point, Hinge, Slider,
 **Cone-Twist**, Six Degrees-of-Freedom, Spring Hinge, Spring 6-DOF. Cone-Twist is
 Bullet's ragdoll joint and is the natural target; 6-DOF is the fallback where each of
@@ -251,12 +265,18 @@ Havok's `hkpRagdollConstraintData` atoms, as ck-cmd reads them
 
 and, per axis:
 
-| Havok | Blender | Maya | Max |
-| --- | --- | --- | --- |
-| `coneMaxAngle` | `limit_ang_y_lower/upper` = ∓cone | `swingSpan1` | Swing 1 limit |
-| `planeMinAngle` / `planeMaxAngle` | `limit_ang_z_lower/upper` directly | `swingSpan2` (see §5.3) | Swing 2 limit (see §5.3) |
-| `twistMinAngle` / `twistMaxAngle` | `limit_ang_x_lower/upper` directly | `twistSpan` (see §5.3) | Twist Limit (asymmetric supported) |
-| `maxFriction` | no equivalent — keep in properties | no equivalent | no equivalent |
+| Havok | axis | Blender | Maya | Max |
+| --- | --- | --- | --- | --- |
+| `twistMinAngle` / `twistMaxAngle` | X | `limit_ang_x_lower/upper` directly | `twistSpan` (see §5.3) | Twist Limit (asymmetric supported) |
+| `planeMinAngle` / `planeMaxAngle` | Y | `limit_ang_y_lower/upper` directly | `swingSpan2` (see §5.3) | Swing 2 limit (see §5.3) |
+| `coneMaxAngle` | Z | `limit_ang_z_lower/upper` = ∓cone | `swingSpan1` | Swing 1 limit |
+| `maxFriction` | — | no equivalent — keep in properties | no equivalent | no equivalent |
+
+The axis column is measured, not assumed. On a vanilla creature skeleton the attachment
+point's local X, Y and Z come back **exactly** equal to `hkc_axis_b` (or `hkc_twist_b`),
+`hkc_perp_axis_in_b1` and `hkc_perp_axis_in_b2`. So the node's own transform *is* the
+Havok frame and needs no remapping: axis 0 is the twist or hinge axis, 1 the plane axis,
+2 the motor axis.
 
 Angles are radians in the NIF and in Blender. Maya and Max script interfaces are in
 degrees; converting is the script's job, and it is the single commonest way to get this
@@ -327,6 +347,18 @@ attach to. Where the application requires a simulation world for constraints to 
 Blender's `RigidBodyWorld`, Max's MassFX scene, Maya's Bullet solver — the script
 creates it.
 
+Note where the rigid body goes. A Havok body is a transform with properties and its
+collision shape as a *child*; Blender's rigid body is a property of a mesh. So the two do
+not sit on the same object: the properties are read off `<bone>_rb` and the rigid body is
+put on `<bone>_rb_capsule`. Maya's Bullet shape and Max's MassFX modifier want geometry
+for the same reason.
+
+**R7. Create bodies passive.** A Skyrim body is parented to a bone, and in all three
+applications the parenting wins over the simulation. An active body is therefore created
+and then does not move, which reads as a bug in the script rather than as the two systems
+disagreeing. Passive is honest: the shapes are there and the constraints are there, and
+turning the ragdoll on begins with unparenting, which is the user's decision.
+
 ### 6.1 Two different jobs, and they want different constraints
 
 Worth separating in any implementation, because they are not the same feature:
@@ -365,6 +397,31 @@ script should offer them as separate operations rather than guessing.
 - [Maya Bullet Constraint Types](https://help.autodesk.com/cloudhelp/2018/ENU/Maya-SimulationEffects/files/GUID-CDB3638D-23AF-49EF-8EF6-53081EE4D39D.htm) — Point, Hinge, Slider, Cone-Twist, 6-DOF, Spring variants
 - [3ds Max MassFX Constraint Helper](https://knowledge.autodesk.com/support/3ds-max/learn-explore/caas/CloudHelp/cloudhelp/2019/ENU/3DSMax-Simulation-Effects/files/GUID-A089EB2B-45A1-4A6B-8B06-221A75267881-htm.html) and [MassFX Toolbar](https://help.autodesk.com/cloudhelp/2023/ENU/3DSMax-Simulation-Effects/files/GUID-DEDC3C01-9F80-42BB-BECB-F0868FBBADB4.htm) — the preset definitions and swing/twist limits
 - [3ds Max custom attributes and FBX, in practice](https://www.tech-artists.org/t/fbx-3ds-max-custom-attr-string-data-not-exporting-to-fbx/6054) — which types studios find survive
+- [IO: New FBX importer (C++, via ufbx)](https://projects.blender.org/blender/blender/pulls/132406) and [Blender 5.0: Pipeline & I/O](https://developer.blender.org/docs/release_notes/5.0/pipeline_io/) — the second importer, and which operator it is
 - Read directly rather than cited: `io_scene_fbx` as shipped with Blender 5.0.1;
   `fbxsdk/core/fbxpropertytypes.h` from FBX SDK 2020.3.9; ck-cmd's `FBXWrangler.cpp` and
   `HKXWrangler.cpp`; `bpy.types.RigidBodyConstraint` queried from Blender 5.0.1.
+
+
+---
+
+## Appendix: two Blender facts a script has to know
+
+Both were found by running the reference implementation
+([SKBlender](https://github.com/aerisarn-two/SKBlender)) headless against a vanilla
+creature ragdoll, and both are silent failures rather than errors.
+
+**`bpy.context.temp_override` segfaults Blender 5.0.1 in background mode** when a rigid
+body operator runs inside it. It is the documented way to give an operator its context
+and it takes the whole process down; setting `view_layer.objects.active` and the
+selection directly does not. `bpy.ops.rigidbody.constraint_add` is the one that crashes.
+
+**A hidden object has no evaluated transform.** With `hide_viewport` set, `matrix_world`
+returns an identity scale instead of the armature's, with no warning — the transform
+simply is not there to read. Six of the cow skeleton's twenty-four bodies arrive hidden,
+and deriving frame A from one of them put it a whole unit out of place. Anything reading
+one matrix relative to another must clear `hide_viewport` and call
+`view_layer.update()` first, then put it back.
+
+Collision shapes arrive hidden too, which is why every rigid body operator refuses them
+with "Cannot edit hidden object" until they are shown.
