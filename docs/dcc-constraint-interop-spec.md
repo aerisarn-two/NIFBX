@@ -228,24 +228,40 @@ which is what Havok's atoms are — so the frame passes through untouched and a 
 is a limit of zero. `POINT` for a ball and socket, where the frame does not matter.
 
 **Maya** — the Bullet plug-in's rigid body constraint: Point, Hinge, Slider,
-**Cone-Twist**, Six Degrees-of-Freedom, Spring Hinge, Spring 6-DOF. Cone-Twist is
-Bullet's ragdoll joint and is the natural target; 6-DOF is the fallback where each of
-the six axes can be locked, free or limited.
+Cone-Twist, **Six Degrees-of-Freedom**, Spring Hinge, Spring 6-DOF.
 
-**3ds Max** — MassFX constraints, which are PhysX D6 joints presented as presets:
+Cone-Twist is Bullet's ragdoll joint and is the wrong target. Maya's Bullet node
+exposes `angularConstraintMaxX/Y/Z` for a cone-twist but `angularConstraintMinX/Y/Z`
+**only** for the six-DOF types, because a cone-twist span is a symmetric half-angle.
+Sixteen of the cow skeleton's ranges are lopsided — the stifle runs −45° to +9° — so
+cone-twist would put the great majority of a creature's joints through §5.3's
+approximation where six-DOF takes both bounds directly.
 
-| Preset | Definition |
-| --- | --- |
-| Rigid | translation, swing and twist all locked |
-| Slide | rigid, plus limited Y translation |
-| Hinge | rigid, with Swing 1 limited to 100° |
-| Twist | rigid, with Twist unlimited |
-| Universal | rigid, with Swing 1 and Swing 2 limited to 45° |
-| Ball & Socket | rigid, Swing 1 and 2 limited to 80°, Twist unlimited |
+**3ds Max** — a MassFX `UConstraint`, which is a PhysX D6. The presets are presets:
+every one of them is the same helper with different limits, so what varies is the
+numbers, not the type.
 
-Every preset is the same D6 joint with different limits, and each of Swing 1, Swing 2
-and Twist can be set Locked, Limited or Free. Twist is rotation about the constraint's
-local X.
+The property names, from the MAXScript reference:
+
+| Axis | Mode | Limit |
+| --- | --- | --- |
+| translation | `linearModeX/Y/Z` | `linearPosition` (one radius) |
+| twist, about local X | `twistMode` | `twistAngleLow` **and** `twistAngleHigh` |
+| swing Y, about local Y | `swing1Mode` | `swing1Angle` — one half-angle |
+| swing Z, about local Z | `swing2Mode` | `swing2Angle` — one half-angle |
+
+with `body0` the parent body, `body1` the child, and every mode taking **0 Locked,
+1 Limited, 2 Free**. Note that Maya's Bullet numbers the same three states **0 Free,
+1 Locked, 2 Limited**: the two hosts disagree, and copying one host's numbers into
+the other is silent.
+
+The asymmetry story is better than §5.3 suggests for Max, and worse for Maya. Max's
+twist is a genuine pair — the reference calls them "absolute degrees for each edge of
+the limit" — so a Havok twist or hinge range crosses exactly. Its swings are single
+half-angles: "if you set Angle Limit to 45 degrees, the total allowed rotation equals
+90". Havok's cone is already a half-angle, so that one is exact too. **Only a lopsided
+plane limit meets a symmetric swing**, which is four of the eleven ragdoll joints in
+the vanilla cow skeleton.
 
 ### 5.2 The mapping
 
@@ -302,7 +318,20 @@ this **must not write the rotated frame back** on export — the original frame 
 `hkc_` properties and stays authoritative.
 
 Max's Twist accepts an independent low and high limit and so needs no such treatment;
-only the two Swings do. Blender needs none at all.
+only the two Swings do. Blender needs none at all, and Maya needs none once six-DOF is
+used instead of cone-twist.
+
+**Where it is needed, record the offset.** A script that recomputes the midpoint on
+export is not inverting what it did on import — it is centring again on whatever the
+range now looks like, so an untouched round trip shifts the joint a little every time.
+The offset belongs on the joint as a property (`skhk_swing_offset`, in radians) so the
+bake can undo exactly what the build did. That is R2 applied to a frame rather than to
+a number.
+
+A range lying entirely to one side of zero cannot be expressed at all where the limits
+are magnitudes about the frame, as Max's are. None of the 34 ranges in the vanilla cow
+skeleton is like that, so it is not a case to design around — but it is a case to
+report rather than flatten.
 
 `maxFriction` — Havok's angular friction torque — has no counterpart in any of the
 three. It survives only in the properties, which is fine, because nothing in a DCC would
@@ -336,6 +365,11 @@ parent third.
 **R4. Both frames survive.** The `_frame_a` child node is not a bone, not a body, and
 not a joint. It carries `constraint_frame = "A"` and must be recreated on export at the
 frame the native constraint implies — or, under R2, written back unchanged.
+
+**R4a. A moved joint is an edited joint.** The fingerprint R2 relies on has to cover
+the joint's own placement, not only its limit values. Otherwise a joint that was
+dragged somewhere new reads as untouched, keeps the frame A it had in its old position,
+and the ragdoll is wrong in the one way nothing about the file would show.
 
 **R5. Units are converted at the boundary and nowhere else.** Radians in the file,
 whatever the application uses internally, and the `bhkScaleFactor` of 69.99125 is
