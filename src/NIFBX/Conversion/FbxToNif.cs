@@ -358,8 +358,12 @@ namespace NIFBX.Conversion
             _model.ReorderBlocks(NifBlockOrder.Sorted(_model));
             _model.UpdateHeader();
 
-            // Who wrote it, where the application said. A file out of a converter
-            // should say which one and at what version; nothing is written when
+            // Where the file came from, before saying what last touched it: a NIF's
+            // header is the only record it keeps, and a rebuilt model starts with an
+            // empty one.
+            ReadHeaderStrings(rootModel);
+
+            // And who wrote it, where the application said. Nothing is written when
             // nobody claimed it.
             Authoring.Stamp(_model);
 
@@ -2420,6 +2424,25 @@ namespace NIFBX.Conversion
                         $"\"{materials[i]}\" is not a Skyrim Havok material, "
                         + "the chunked mesh keeps the default for it");
                 }
+            }
+        }
+
+        /// <summary>Puts back the header's export strings, where the scene carried them.</summary>
+        private void ReadHeaderStrings(FbxObject? root)
+        {
+            if (root is null
+                || _model.Header.Children.FirstOrDefault(c => c.Def.Name == "BS Header") is not { } header)
+            {
+                return;
+            }
+
+            foreach (string field in NifToFbx.HeaderStrings)
+            {
+                string value = root.Properties.GetString(
+                    NifToFbx.HeaderStringPrefix + NifToFbx.Key(field));
+
+                if (value.Length > 0 && header.Children.FirstOrDefault(c => c.Def.Name == field) is { } item)
+                    _model.SetString(item, value);
             }
         }
 

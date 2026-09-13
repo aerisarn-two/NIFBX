@@ -6,11 +6,12 @@ namespace NIFBX
     /// Who to record as having written a converted file.
     /// </summary>
     /// <remarks>
-    /// A file that came out of a converter should say so. The NIF header has three
-    /// fields for it and every vanilla mesh leaves all three empty, which is worth
-    /// knowing in itself: a file with something in them did not ship with the game,
-    /// and a year later that is the difference between "why does this behave oddly"
-    /// and "because it went through this tool at that version".
+    /// A file that came out of a converter should say so, and the NIF header is
+    /// where a NIF says such things. Which field matters: of 1,106 vanilla meshes,
+    /// <b>1,046 name a person in Author</b> -- cmeister, charles.kim, mteare, the
+    /// artists who built the game -- while not one of them fills in Process Script.
+    /// So the tool goes in Process Script, the field that is empty and means "what
+    /// processed this", and Author is left to whoever wrote the thing.
     ///
     /// <b>Nothing is stamped unless a signature is set.</b> The library does not
     /// name itself by default, and deliberately: a converter that writes into the
@@ -50,10 +51,13 @@ namespace NIFBX
         /// Records the signature in a converted model's header.
         /// </summary>
         /// <remarks>
-        /// <c>Author</c> is the tool, because that is the field NifSkope shows and a
-        /// modder looks at first. <c>Process Script</c> is the library underneath
-        /// it, so a report naming a problem names the thing that has to be fixed
-        /// rather than the thing it was run from.
+        /// <c>Process Script</c> holds both the application and the library beneath
+        /// it, so a report about a bad file names the thing that has to be fixed as
+        /// well as the thing it was run from.
+        ///
+        /// <c>Author</c> is not touched. It is the field a NIF keeps the maker's
+        /// name in and the game's own meshes use it -- writing a tool there would
+        /// erase an artist from a file the tool merely passed through.
         ///
         /// Only for a model this library built out of a scene. A model that was
         /// loaded is somebody else's file and keeps whatever it came with.
@@ -68,8 +72,7 @@ namespace NIFBX
             if (signature is not { Length: > 0 } named)
                 return;
 
-            Set(model, "Author", named);
-            Set(model, "Process Script", Library);
+            Set(model, "Process Script", $"{named}, {Library}");
         }
 
         /// <summary>Writes one of the header's export strings, where the version has it.</summary>

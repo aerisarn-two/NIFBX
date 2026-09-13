@@ -22,7 +22,7 @@ namespace NIFBX.Tests
             NifModel model = NifModel.CreateNew(NifXmlDatabase.LoadEmbedded(), 0x14020007, 12, 100);
             Authoring.Stamp(model, null);
 
-            Assert.Equal(string.Empty, Author(model));
+            Assert.Equal(string.Empty, Script(model));
         }
 
         /// <summary>
@@ -35,13 +35,18 @@ namespace NIFBX.Tests
         public void TheApplicationIsRecordedWhenItSaysWhoItIs()
         {
             NifModel model = NifModel.CreateNew(NifXmlDatabase.LoadEmbedded(), 0x14020007, 12, 100);
+            model.SetString(model.Header.Children.First(c => c.Def.Name == "BS Header")
+                .Children.First(c => c.Def.Name == "Author"), "someone who made this");
+
             Authoring.Stamp(model, "se-cmd 9.9.9.9");
 
-            Assert.Equal("se-cmd 9.9.9.9", Author(model));
+            // The tool and the library beneath it, in the field that means "what
+            // processed this" and that no vanilla mesh uses.
+            Assert.StartsWith("se-cmd 9.9.9.9, NIFBX ", Script(model));
 
-            // And the library underneath it, so a report about a bad file names the
-            // thing that has to be fixed rather than the thing it was run from.
-            Assert.StartsWith("NIFBX ", Script(model));
+            // And the maker is left alone. 1,046 of 1,106 vanilla meshes name an
+            // artist there, and a converter is not one.
+            Assert.Equal("someone who made this", Author(model));
         }
 
         [Fact]
