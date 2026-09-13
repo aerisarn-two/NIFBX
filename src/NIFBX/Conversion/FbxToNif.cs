@@ -358,6 +358,11 @@ namespace NIFBX.Conversion
             _model.ReorderBlocks(NifBlockOrder.Sorted(_model));
             _model.UpdateHeader();
 
+            // Who wrote it, where the application said. A file out of a converter
+            // should say which one and at what version; nothing is written when
+            // nobody claimed it.
+            Authoring.Stamp(_model);
+
             return _model;
         }
 

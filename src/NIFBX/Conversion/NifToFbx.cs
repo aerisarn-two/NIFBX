@@ -2630,11 +2630,11 @@ namespace NIFBX.Conversion
             stamp.Nodes.Add(new FbxNode("Millisecond", 0));
             header.Nodes.Add(stamp);
 
-            header.Nodes.Add(new FbxNode("Creator", "NIFBX"));
+            header.Nodes.Add(new FbxNode("Creator", Authoring.Creator));
             document.Nodes.Add(header);
 
             document.Nodes.Add(new FbxNode("CreationTime", now.ToString("yyyy-MM-dd HH:mm:ss:fff")));
-            document.Nodes.Add(new FbxNode("Creator", "NIFBX"));
+            document.Nodes.Add(new FbxNode("Creator", Authoring.Creator));
 
             //
             // The scene document. A viewer reads ActiveAnimStackName to decide which
