@@ -69,8 +69,28 @@ namespace NIFBX.Fbx
             // hash, so a name carrying two bone names and a suffix comes back
             // truncated. Written by this library and by HKFBX; absent from ck-cmd's
             // scenes, which is why the name is still read first.
-            string statedOwner = node.Properties.GetString(FbxConstraintWriter.BodyAProperty);
-            string statedOther = node.Properties.GetString(FbxConstraintWriter.BodyBProperty);
+            //
+            // Unescaped, like the name above it. A body is found by the name of the
+            // node it came from and those are kept plain, while a scene spells a
+            // node's name with a space as `_s_` and a bracket as `_ob_`. The stated
+            // names are written in the scene's spelling, so reading them as they
+            // stand looks up `Ragdoll_NPC_s_Spine_s__ob_Spn0_cb_01_rb` in a table
+            // holding `Ragdoll_NPC Spine [Spn0]01_rb` and finds nothing.
+            //
+            // It only shows on a file whose collision bodies are named after bones.
+            // A creature's skeleton.nif calls them Pelvis_rb and LFemur_rb, which
+            // need no escaping and so read back the same either way; a piece of
+            // armour with a ragdoll in it calls them after the bones they ride, and
+            // knuckles_go.nif lost all 17 of its constraints this way -- every one
+            // of them reported, and the file still written.
+            //
+            // Unescaping a name that was never escaped changes nothing, so a scene
+            // stating plain names -- which is what SKAssets writes -- is unaffected.
+            string statedOwner = NameEncoding.Unsanitize(
+                node.Properties.GetString(FbxConstraintWriter.BodyAProperty));
+
+            string statedOther = NameEncoding.Unsanitize(
+                node.Properties.GetString(FbxConstraintWriter.BodyBProperty));
 
             if (statedOwner.Length > 0) owner = statedOwner;
             if (statedOther.Length > 0) other = statedOther;
@@ -92,7 +112,8 @@ namespace NIFBX.Fbx
                         ? string.Empty
                         : ParentName(scene, node),
                 ChainedNames = [.. node.Properties.GetString(FbxConstraintWriter.ChainedProperty)
-                    .Split(FbxConstraintWriter.NameSeparator, StringSplitOptions.RemoveEmptyEntries)],
+                    .Split(FbxConstraintWriter.NameSeparator, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(NameEncoding.Unsanitize)],
                 FrameB = ReadTransform(node),
                 FrameA = FarFrameOf(scene, node),
             };
