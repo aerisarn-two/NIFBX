@@ -59,11 +59,17 @@ bpy.ops.export_scene.fbx(
     use_selection=False,
     apply_unit_scale=True,
     apply_scale_options='FBX_SCALE_NONE',
-    # The axes NIFBX declares, so the file comes back as the file it was. These
-    # are Blender's description of the conversion rather than of the file, and
-    # the two are not the same sentence: the default `-Z`/`Y` returns the whole
-    # scene rotated -90 degrees about X, and `-Y`/`Z` returns it spun 180 about
-    # Z. Only `Y`/`Z` gives back what went in.
+    # Z up and +Y forward, which is Skyrim's convention and NIFBX's.
+    #
+    # The file says this as `UpAxis=Z, FrontAxis=Y, FrontAxisSign=-1`, which is
+    # `FbxAxisSystem::eMax`, and looks like it disagrees until you read what FBX
+    # means by front: "vector with origin at the screen pointing toward the
+    # camera", where -1 is "back relative to observer". A model facing +Y is
+    # looked at down -Y, so -Y front *is* +Y forward. Blender names the facing
+    # direction instead, so the same convention is spelled `Y` here.
+    #
+    # Getting it wrong is quiet: the default `-Z`/`Y` returns the whole scene
+    # rotated -90 degrees about X, and `-Y`/`Z` returns it spun 180 about Z.
     #
     # Either wrong answer is geometrically perfect -- across 47 skeleton nodes
     # the worst pairwise distance changed by 0.0001 units -- and in the wrong
