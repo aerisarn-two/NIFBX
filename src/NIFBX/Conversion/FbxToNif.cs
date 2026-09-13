@@ -110,6 +110,52 @@ namespace NIFBX.Conversion
         /// <summary>Diagnostics gathered during conversion.</summary>
         public List<string> Warnings { get; } = [];
 
+        /// <summary>
+        /// The model standing for the NIF root, among however many roots the scene has.
+        /// </summary>
+        /// <remarks>
+        /// A scene this converter wrote has exactly one root model and it is the NIF
+        /// root, which is the easy case and the one the rest of this method was written
+        /// for. A scene that has been through a DCC tool need not: **Blender does not
+        /// parent a skinned mesh to its armature in the node graph** -- the armature is
+        /// a deformer, not a parent -- so a file with one root and two skinned meshes
+        /// comes back with three roots, the armature and both meshes side by side.
+        ///
+        /// Counting roots and giving up when there is more than one threw away a root
+        /// type the file actually states. Six of the nifly fixtures are skinned and all
+        /// six came back rooted on `BSFadeNode` where they went in as `NiNode`, along
+        /// with the root's flags, extra data, bounds and controllers, and a redundant
+        /// node inserted above everything.
+        ///
+        /// So: the root is the one that says what it is and carries no geometry. Where
+        /// no root says, or several disagree, this returns null and the caller invents
+        /// one as before -- which is what a scene authored somewhere else looks like,
+        /// and there is nothing there to honour.
+        /// </remarks>
+        private FbxObject? RootModelOf(List<FbxObject> sceneRoots)
+        {
+            if (sceneRoots.Count == 1)
+                return HasGeometry(sceneRoots[0]) ? null : sceneRoots[0];
+
+            FbxObject? stated = null;
+
+            foreach (FbxObject candidate in sceneRoots)
+            {
+                if (candidate.Properties.GetString(FbxNodeType.Property).Length == 0
+                    || HasGeometry(candidate))
+                {
+                    continue;
+                }
+
+                if (stated is not null)
+                    return null;
+
+                stated = candidate;
+            }
+
+            return stated;
+        }
+
         /// <summary>Builds a NIF from the scene.</summary>
         public NifModel Convert(NifXmlDatabase database)
         {
@@ -123,8 +169,10 @@ namespace NIFBX.Conversion
             var detached = _scene.RootModels().Where(FbxNodeType.IsDetached).ToList();
             var sceneRoots = _scene.RootModels().Where(o => !FbxNodeType.IsDetached(o)).ToList();
 
-            string rootType = sceneRoots.Count == 1 && !HasGeometry(sceneRoots[0])
-                ? FbxNodeType.Read(sceneRoots[0], _model, "BSFadeNode")
+            FbxObject? rootModel = RootModelOf(sceneRoots);
+
+            string rootType = rootModel is not null
+                ? FbxNodeType.Read(rootModel, _model, "BSFadeNode")
                 : "BSFadeNode";
 
             // A rig whose skins bind only to plain nodes under the root is rooted on a
@@ -136,9 +184,9 @@ namespace NIFBX.Conversion
             // condition holds for 977 vanilla files and 402 of them are rooted on
             // `BSFadeNode`, nearly all facegen heads, whose bones are parented to the
             // root exactly like a rig's.
-            if (sceneRoots.Count == 1
-                && sceneRoots[0].Properties.GetString(FbxNodeType.Property).Length == 0
-                && IsPlainSkeletonRoot(sceneRoots[0]))
+            if (rootModel is not null
+                && rootModel.Properties.GetString(FbxNodeType.Property).Length == 0
+                && IsPlainSkeletonRoot(rootModel))
             {
                 rootType = "NiNode";
             }
@@ -155,20 +203,20 @@ namespace NIFBX.Conversion
 
             // The root is built here rather than by the walk, so everything the walk
             // does for a node has to be done for it too.
-            if (sceneRoots.Count == 1 && !HasGeometry(sceneRoots[0]))
+            if (rootModel is not null)
             {
-                FbxNodeType.ReadFields(sceneRoots[0], _model, root, "NiNode");
-                FbxNodeType.ReadFlags(sceneRoots[0], _model, root);
-                FbxExtraDataWriter.ReadExtraData(sceneRoots[0], _model, root, Warnings);
-                FbxMultiBound.Read(_scene, sceneRoots[0], _model, root, Warnings);
-                FbxNodeControllers.Read(sceneRoots[0], _model, root, Warnings, AimAt);
+                FbxNodeType.ReadFields(rootModel, _model, root, "NiNode");
+                FbxNodeType.ReadFlags(rootModel, _model, root);
+                FbxExtraDataWriter.ReadExtraData(rootModel, _model, root, Warnings);
+                FbxMultiBound.Read(_scene, rootModel, _model, root, Warnings);
+                FbxNodeControllers.Read(rootModel, _model, root, Warnings, AimAt);
 
                 // The root is a tree node in every tree the game ships, so leaving this
                 // to the walk left it out altogether.
-                FbxTreeNode.Read(sceneRoots[0], _model, root, AimAt);
+                FbxTreeNode.Read(rootModel, _model, root, AimAt);
 
                 // And its controllers need ordering like any other node's.
-                _animatedControllerHosts.Add((sceneRoots[0], root));
+                _animatedControllerHosts.Add((rootModel, root));
             }
             _nodesByName[_options.RootName] = root;
             _sceneRoot = root;
@@ -182,13 +230,18 @@ namespace NIFBX.Conversion
             // in a DCC tool but leaves one to collapse on the way back. A lone root
             // Model carrying no geometry of its own is exactly that node, so it maps
             // onto the NIF root rather than becoming a redundant child of it.
-            if (rootModels.Count == 1 && !HasGeometry(rootModels[0]))
+            if (rootModel is not null)
             {
-                FbxObject sceneNode = rootModels[0];
-                _model.SetTransform(root, ReadTransform(sceneNode));
+                _model.SetTransform(root, ReadTransform(rootModel));
 
-                foreach (FbxObject child in _scene.ChildrenOf(sceneNode.Id).Where(o => o.Class == "Model"))
+                foreach (FbxObject child in _scene.ChildrenOf(rootModel.Id).Where(o => o.Class == "Model"))
                     ConvertModel(child, children);
+
+                // Anything else the scene left at the top belongs under the root: a
+                // mesh a DCC tool unparented from it is still the root's child here,
+                // because a NIF has one root and no siblings for it.
+                foreach (FbxObject model in rootModels.Where(m => !ReferenceEquals(m, rootModel)))
+                    ConvertModel(model, children);
             }
             else
             {

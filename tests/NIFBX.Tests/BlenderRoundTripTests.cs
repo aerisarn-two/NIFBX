@@ -213,6 +213,8 @@ namespace NIFBX.Tests
                     .Take(6)
                     .Select(g => $"{g.Key} x{g.Count()}"));
 
+            census = $"{fields.Count} field(s): {census}";
+
             return (blocks, fields.Count) switch
             {
                 (null, _) => census,
