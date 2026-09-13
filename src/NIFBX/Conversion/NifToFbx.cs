@@ -594,12 +594,36 @@ namespace NIFBX.Conversion
             if (shape.Name is "bhkCapsuleShape" or "bhkCylinderShape")
                 WriteShapeAxis(holder, shape);
 
-            if (shape.Name == "bhkConvexVerticesShape"
-                && _model.FindItem(shape, "Radius") is { } convexRadius)
+            if (shape.Name == "bhkConvexVerticesShape")
             {
-                holder.Properties.SetUserString(
-                    ConvexRadiusProperty,
-                    convexRadius.Value.ToFloat().ToString("R", CultureInfo.InvariantCulture));
+                if (_model.FindItem(shape, "Radius") is { } convexRadius)
+                {
+                    holder.Properties.SetUserString(
+                        ConvexRadiusProperty,
+                        convexRadius.Value.ToFloat().ToString("R", CultureInfo.InvariantCulture));
+                }
+
+                //
+                // The corners as the file lists them, beside the mesh they are drawn
+                // as. A hull travels as triangles and a corner no triangle uses does
+                // not travel at all: the daedric dagger's hull lists ten corners, four
+                // of them repeated and two sitting partway along an edge, and one of
+                // those two comes back missing. The corner list is not a cloud to be
+                // re-derived -- it is what the file says, duplicates and all.
+                //
+                // The scene still gets the mesh, because that is what a person edits
+                // and what a viewer draws. This is only preferred on the way back when
+                // the mesh still agrees with it.
+                //
+                List<NifVector3> corners = ReadConvexVertices(shape);
+
+                if (corners.Count > 0)
+                {
+                    holder.Properties.SetUserString(
+                        ConvexCornersProperty,
+                        string.Join(' ', corners.SelectMany(c => new[] { c.X, c.Y, c.Z })
+                            .Select(f => f.ToString("R", CultureInfo.InvariantCulture))));
+                }
             }
 
             if (shape.Name == "bhkCompressedMeshShape"
@@ -908,6 +932,15 @@ namespace NIFBX.Conversion
         /// flat 0.01, which is not even the mode.
         /// </remarks>
         public const string ConvexRadiusProperty = "nif_convex_radius";
+
+        /// <summary>A convex hull's corners, as the file lists them.</summary>
+        /// <remarks>
+        /// Three numbers per corner, in file order. Carried because the corner list
+        /// is data rather than geometry: it may hold the same point twice and points
+        /// that lie along an edge rather than at a vertex, and a hull re-derived from
+        /// the triangles it was drawn as has neither.
+        /// </remarks>
+        public const string ConvexCornersProperty = "nif_convex_corners";
 
         /// <summary>The property a compressed mesh shape's unnamed float travels in.</summary>
         public const string CompressedMeshUnknownProperty = "nif_cms_unknown_float_1";

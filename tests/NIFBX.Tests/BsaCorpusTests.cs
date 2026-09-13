@@ -566,9 +566,16 @@ namespace NIFBX.Tests
         /// bounded those corners to begin with, which says nothing about the rebuild.
         ///
         /// So what is asked is what can be answered: the corner sets agree, within a
-        /// hundredth of the hull's own span, in both directions. They do, and by a
-        /// wide margin -- 3,499 of 3,516 agree to a *thousandth* of a span, with a
-        /// median displacement of exactly zero.
+        /// hundredth of the hull's own span, in both directions. Every one of the
+        /// 3,516 does, and the ceiling is zero because there is nothing left to
+        /// tolerate.
+        ///
+        /// Seventeen of them did not, until the corner list was carried rather than
+        /// re-derived. They were not corners that moved: they were corners that went
+        /// missing. A hull's list is data, not geometry -- the daedric dagger's holds
+        /// ten entries for six distinct points, two of them partway along an edge --
+        /// and a hull travelling through a scene as triangles leaves behind every
+        /// entry no triangle happens to use. All seventeen are now exact.
         ///
         /// The plane count is not asked about at all. It differs on half the hulls, and
         /// what to make of that is genuinely open (§7.3): our planes contain our corners
@@ -641,11 +648,17 @@ namespace NIFBX.Tests
         /// The share of meshes whose convex hulls come back a different shape.
         /// </summary>
         /// <remarks>
-        /// 17 hulls of 3,516 move a corner by more than a hundredth of their span. The
-        /// rest are exact: 3,499 agree to a thousandth, and the median displacement over
-        /// all of them is zero.
+        /// None of them, over all 3,516 hulls the game ships. Kept as a named zero
+        /// rather than removed, so a change that starts losing corners again says so
+        /// here instead of being absorbed by a tolerance.
+        ///
+        /// A ratio is also a poor gate on a sample: it counts divergent meshes
+        /// against every mesh checked, so the same handful of offenders read as 0.08%
+        /// of the corpus and 0.4% of an 800-mesh sample. It passed at full corpus and
+        /// failed on a sample while seventeen hulls were genuinely broken, which is
+        /// the wrong way round for a number meant to warn anybody.
         /// </remarks>
-        private const double KnownHullDivergence = 0.002;
+        private const double KnownHullDivergence = 0;
 
         /// <summary>Every convex hull's corners, in block order.</summary>
         private static List<List<NifVector3>> HullCorners(NifModel m)

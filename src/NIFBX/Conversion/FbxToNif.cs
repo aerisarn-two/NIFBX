@@ -2423,6 +2423,80 @@ namespace NIFBX.Conversion
             }
         }
 
+        /// <summary>The corner list a scene carries for a hull, if it carries one.</summary>
+        private static List<NifVector4> CarriedCorners(FbxObject node)
+        {
+            string text = node.Properties.GetString(NifToFbx.ConvexCornersProperty);
+            var corners = new List<NifVector4>();
+
+            if (text.Length == 0)
+                return corners;
+
+            string[] parts = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            for (int i = 0; i + 2 < parts.Length; i += 3)
+            {
+                if (!float.TryParse(parts[i], NumberStyles.Float, CultureInfo.InvariantCulture, out float x)
+                    || !float.TryParse(parts[i + 1], NumberStyles.Float, CultureInfo.InvariantCulture, out float y)
+                    || !float.TryParse(parts[i + 2], NumberStyles.Float, CultureInfo.InvariantCulture, out float z))
+                {
+                    return [];
+                }
+
+                corners.Add(new NifVector4(x, y, z, 0f));
+            }
+
+            return corners;
+        }
+
+        /// <summary>
+        /// Whether the hull the scene holds is still the hull the corners describe.
+        /// </summary>
+        /// <remarks>
+        /// One way round only. The carried list may hold corners the mesh cannot --
+        /// a repeat, or a point along an edge -- and that is the whole reason to
+        /// carry it. What must not happen is the reverse: a corner in the mesh that
+        /// the list does not know about means somebody moved the hull, and then the
+        /// mesh is the answer.
+        /// </remarks>
+        private static bool Agrees(IReadOnlyList<NifVector4> mesh, IReadOnlyList<NifVector4> carried)
+        {
+            if (mesh.Count == 0 || carried.Count == 0)
+                return false;
+
+            float span = 0f;
+
+            foreach (NifVector4 c in carried)
+            {
+                span = Math.Max(span, Math.Abs(c.X));
+                span = Math.Max(span, Math.Abs(c.Y));
+                span = Math.Max(span, Math.Abs(c.Z));
+            }
+
+            double tolerance = Math.Max(span * 1e-4, 1e-6);
+
+            foreach (NifVector4 v in mesh)
+            {
+                bool found = false;
+
+                foreach (NifVector4 c in carried)
+                {
+                    double dx = v.X - c.X, dy = v.Y - c.Y, dz = v.Z - c.Z;
+
+                    if (Math.Sqrt(dx * dx + dy * dy + dz * dz) <= tolerance)
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+
+                if (!found)
+                    return false;
+            }
+
+            return true;
+        }
+
         private void WriteUShorts(NifItem parent, string countField, string arrayField, IReadOnlyList<ushort> values)
         {
             if (_model.SetArraySize(parent, countField, arrayField, values.Count) is not { } array)
@@ -2436,6 +2510,25 @@ namespace NIFBX.Conversion
         private NifItem BuildConvex(IReadOnlyList<NifVector3> points, FbxObject node)
         {
             (List<NifVector4> vertices, List<NifVector4> planes) = ShapeFitter.FitConvex(points);
+
+            //
+            // The corners the file listed, where the scene still agrees with them.
+            // A hull is drawn as triangles and a corner no triangle uses is not in
+            // the mesh at all, so re-deriving the list loses whatever the file held
+            // beyond the hull's true vertices: a repeated corner, or one sitting
+            // partway along an edge. The daedric dagger lists ten and comes back with
+            // nine, and it is the one on the edge that goes.
+            //
+            // Agreement is the test, not presence. Every corner the mesh actually
+            // has must be one the file listed; if an artist moved one, or added one,
+            // the mesh is what they meant and the carried list is stale.
+            //
+            if (CarriedCorners(node) is { Count: > 0 } listed && Agrees(vertices, listed))
+            {
+                // The planes are fitted from the same corners either way -- a point
+                // on an edge changes no face -- so only the list is replaced.
+                vertices = listed;
+            }
 
             NifItem shape = _model.InsertBlock("bhkConvexVerticesShape");
 
