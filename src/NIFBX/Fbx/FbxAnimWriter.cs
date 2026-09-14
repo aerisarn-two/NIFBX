@@ -672,21 +672,35 @@ namespace NIFBX.Fbx
                 return;
             }
 
-            string key = $"{FbxNodeControllers.AnimatedFieldPrefix}{property.ControllerType}"
-                + $"_{property.ControllerId}_{property.InterpolatorId}";
+            // Keep this short. Blender truncates an ID property name at 63 bytes and
+            // appends a hash of the rest -- a sabre cat's
+            // `BSLightingShaderPropertyColorController|1||BSLightingShaderProperty`
+            // arrives as `...|BSLightingSh_88aa958`, which no add-on can find by
+            // name. The longest key written here is 61 bytes on the lumbermill
+            // waterwheel, two under, so there is not much room: a controller class
+            // and a modifier name only a little longer would go over the edge
+            // silently.
+            string controller = $"{FbxNodeControllers.AnimatedFieldPrefix}"
+                + $"{property.ControllerType}_{property.ControllerId}";
 
             node.Properties.SetUserString(
-                key, value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                $"{controller}_{property.InterpolatorId}",
+                value.ToString(System.Globalization.CultureInfo.InvariantCulture));
 
+            // Once for the controller rather than once for each of its values. The
+            // flags are the controller's -- a birth rate and an emitter-active track
+            // hang off one NiPSysEmitterCtlr and share them -- so writing them under
+            // each was both a duplicate and thirteen bytes of a name that has none
+            // to spare.
             if (property.ControllerFlags is { } flags)
             {
                 node.Properties.SetUserString(
-                    $"{key}{FlagsSuffix}",
+                    $"{controller}{FlagsSuffix}",
                     flags.ToString(System.Globalization.CultureInfo.InvariantCulture));
             }
         }
 
-        /// <summary>Appended to a mirrored constant's key for its controller's flags.</summary>
+        /// <summary>Appended to a mirrored controller's key for its flags.</summary>
         /// <remarks>
         /// Bits 1-2 are the cycle type, which decides whether an emitter runs its span
         /// once or goes back to the beginning and runs it again -- the difference

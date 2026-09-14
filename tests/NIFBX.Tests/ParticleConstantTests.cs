@@ -60,8 +60,12 @@ namespace NIFBX.Tests
         private static FbxObject NodeOf(FbxScene scene) =>
             scene.OfClass("Model").First(o => o.Name == "PArray07");
 
-        private static string Key(string suffix = "") =>
-            $"{FbxNodeControllers.AnimatedFieldPrefix}NiPSysEmitterCtlr_NiPSysMeshEmitter:0_{Rate}{suffix}";
+        private static string Key() =>
+            $"{FbxNodeControllers.AnimatedFieldPrefix}NiPSysEmitterCtlr_NiPSysMeshEmitter:0_{Rate}";
+
+        private static string FlagsKey() =>
+            $"{FbxNodeControllers.AnimatedFieldPrefix}NiPSysEmitterCtlr_NiPSysMeshEmitter:0"
+            + FbxAnimWriter.FlagsSuffix;
 
         [Fact]
         public void TheRateReachesTheNode()
@@ -88,7 +92,12 @@ namespace NIFBX.Tests
             // that goes out.
             FbxObject node = NodeOf(Written("NiParticleSystem"));
 
-            Assert.Equal("104", node.Properties.GetString(Key(FbxAnimWriter.FlagsSuffix)));
+            Assert.Equal("104", node.Properties.GetString(FlagsKey()));
+
+            // And it fits: Blender truncates an ID property name at 63 bytes and
+            // hashes the tail, which would put it out of an add-on's reach.
+            Assert.True(FlagsKey().Length <= 63, $"{FlagsKey().Length} bytes");
+            Assert.True(Key().Length <= 63, $"{Key().Length} bytes");
         }
 
         [Fact]
