@@ -184,7 +184,10 @@ namespace NIFBX.Fbx
                     else if (property.Empty)
                         AddEmpty(stack, track.NodeName, property);
                     else if (property.Constant is { } value)
+                    {
                         AddConstant(stack, track.NodeName, property, value);
+                        MirrorConstant(model, property, value);
+                    }
                     else if (model is not null)
                         AddPropertyChannel(scene, layer, model, property);
 
@@ -628,6 +631,69 @@ namespace NIFBX.Fbx
         /// The stack is the only per-take place in FBX, so it goes there, keyed by the
         /// node and the property it belongs to.
         /// </remarks>
+        /// <summary>
+        /// Puts a particle system's constant onto the node as well as onto the stack.
+        /// </summary>
+        /// <remarks>
+        /// A constant lives on the animation stack because that is whose it is: the
+        /// next sequence can hold a different one, so it is an animation and not a
+        /// resting value. That is right for the file and useless to a tool.
+        ///
+        /// Blender turns a stack into an Action and keeps none of its user properties
+        /// -- measured on the lumbermill waterwheel, whose birth rate of 90 a second
+        /// reaches the FBX as `const_PArray07|NiPSysEmitterCtlr|...|BirthRate` and is
+        /// nowhere in the imported scene, on any object, action, collection or the
+        /// scene itself. An add-on reading that file had no rate to build with and fell
+        /// back to one particle a frame, which is 24 a second against the 90 the file
+        /// asks for.
+        ///
+        /// So a particle system's constants are mirrored onto its own node, which is
+        /// the same argument that already sends its controllers there as settings
+        /// rather than as a clip (<see cref="FbxNodeControllers.Write"/>): an effect's
+        /// numbers are its configuration, and a tool has to be able to see them.
+        ///
+        /// Only a particle system's, taken off the block type the node records rather
+        /// than guessed, and only written -- the stack is still the authority coming
+        /// back, so nothing here can disagree with the file.
+        /// </remarks>
+        private static void MirrorConstant(FbxObject? node, AnimProperty property, float value)
+        {
+            if (node is null
+                || property.ControllerType.Length == 0
+                || property.InterpolatorId.Length == 0)
+            {
+                return;
+            }
+
+            // `NiParticleSystem` and the `BSStripParticleSystem` that inherits it.
+            if (node.Properties.GetString(FbxNodeType.Property) is not { } kind
+                || !kind.Contains("ParticleSystem", StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            string key = $"{FbxNodeControllers.AnimatedFieldPrefix}{property.ControllerType}"
+                + $"_{property.ControllerId}_{property.InterpolatorId}";
+
+            node.Properties.SetUserString(
+                key, value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+            if (property.ControllerFlags is { } flags)
+            {
+                node.Properties.SetUserString(
+                    $"{key}{FlagsSuffix}",
+                    flags.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            }
+        }
+
+        /// <summary>Appended to a mirrored constant's key for its controller's flags.</summary>
+        /// <remarks>
+        /// Bits 1-2 are the cycle type, which decides whether an emitter runs its span
+        /// once or goes back to the beginning and runs it again -- the difference
+        /// between a campfire that burns and one that goes out.
+        /// </remarks>
+        public const string FlagsSuffix = "_flags";
+
         private static void AddConstant(
             FbxObject stack, string nodeName, AnimProperty property, float value)
         {
