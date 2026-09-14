@@ -365,7 +365,9 @@ namespace NIFBX.Conversion
             // line above leaves to the animation route and the animation route knows
             // only by their keys. A particle system's controllers need this as much as
             // any other node's -- more, since the multi-target emitter is one of them.
-            FbxNodeControllers.WriteAnimatedFields(node, _model, block, SequencedControllers);
+            FbxNodeControllers.WriteAnimatedFields(
+                node, _model, block, SequencedControllers,
+                configuration: FbxParticleWriter.IsParticleSystem(_model, block));
 
             // And the order they sit in, which neither route rebuilds and which a
             // shader's chain does not follow any rule this could derive.
@@ -373,7 +375,8 @@ namespace NIFBX.Conversion
 
             if (FbxParticleWriter.IsParticleSystem(_model, block))
             {
-                FbxParticleWriter.AddParticleSystem(scene, node, _model, block);
+                FbxParticleWriter.AddParticleSystem(
+                    scene, node, _model, block, SequencedControllers);
 
                 // A particle system is a shape: it has a shader and an alpha property
                 // like any other, and they are what the effect actually looks like.

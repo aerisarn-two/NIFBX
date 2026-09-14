@@ -87,6 +87,14 @@ namespace NIFBX.Nif
                 // bind to.
                 foreach (NifItem owner in ControllerHosts(model, block))
                 {
+                    // A particle system's own controllers configure the system rather
+                    // than play on it, and travel with it as its settings do. There is
+                    // no sequence naming them -- that is why they reach this method at
+                    // all -- so the stack invented below was the only thing holding
+                    // them, and a tool that drops it dropped the emission window.
+                    if (IsConfiguration(model, owner))
+                        continue;
+
                     for (NifItem? controller = model.GetRef(owner, "Controller");
                          controller is not null;
                          controller = model.GetRef(controller, "Next Controller"))
@@ -150,6 +158,24 @@ namespace NIFBX.Nif
             || model.BlockInherits(interpolator, "NiFloatInterpolator")
             || model.BlockInherits(interpolator, "NiBoolInterpolator")
             || model.BlockInherits(interpolator, "NiPoint3Interpolator");
+
+        /// <summary>
+        /// Whether a block's own controllers are its settings rather than a clip.
+        /// </summary>
+        /// <remarks>
+        /// A particle system's are. Its emitter controller holds the birth rate and
+        /// the emission window, which are what the effect *is* in the same way its
+        /// modifier stack is — and the rest of the system already travels as settings
+        /// on the node. The structural carrier takes these whole, keys and all, so
+        /// this route leaves them alone; see <see cref="Fbx.FbxNodeControllers.Write"/>
+        /// for the measurements behind the choice.
+        ///
+        /// Only the system's own chain. A shader property hanging off it is a
+        /// different host with a different answer: a colour fading over time is
+        /// animation, whoever it belongs to.
+        /// </remarks>
+        public static bool IsConfiguration(NifModel model, NifItem host) =>
+            model.BlockInherits(host, "NiParticleSystem");
 
         /// <summary>
         /// The controllers a sequence names, which the sequence rebuilds.

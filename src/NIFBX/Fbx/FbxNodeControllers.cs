@@ -48,9 +48,14 @@ namespace NIFBX.Fbx
         /// interpolator of its own is not enough to be structural:
         /// <c>BSProceduralLightningController</c> holds nine, none of them called
         /// `Interpolator`, and every one of them is driven from a sequence.
-        private static bool IsStructural(NifModel model, NifItem controller) =>
-            !Animated(model, controller, "Interpolator")
-            && !Animated(model, controller, "Visibility Interpolator")
+        /// <param name="configuration">
+        /// That the block's own controllers configure it rather than play on it, so an
+        /// interpolator does not disqualify one. See <see cref="Write"/>.
+        /// </param>
+        private static bool IsStructural(NifModel model, NifItem controller, bool configuration) =>
+            (configuration
+                || (!Animated(model, controller, "Interpolator")
+                    && !Animated(model, controller, "Visibility Interpolator")))
             && !model.BlockInherits(controller, "NiControllerManager")
             && !model.BlockInherits(controller, "NiMultiTargetTransformController");
 
@@ -85,8 +90,36 @@ namespace NIFBX.Fbx
         /// none carries every structural controller, which is right only for a file
         /// with no sequences.
         /// </param>
+        /// <param name="configuration">
+        /// That every controller on this block that no sequence names is part of what
+        /// the block *is*, and travels with it however many interpolators it holds.
+        ///
+        /// True for a particle system. Its emission window and birth rate are not a
+        /// clip somebody plays — there is no clip, which is exactly why they end up
+        /// here — they are the effect's settings, and the rest of the effect already
+        /// travels this way: the system block, its data, its eleven modifiers and the
+        /// update switch. The emitter controller was the one piece of that machine
+        /// routed elsewhere, into a stack this port invents to hold standalone
+        /// controllers, and a tool that drops the stack dropped the emission with it.
+        ///
+        /// The interpolators are hardly animation in any case. Of the game's 1,704
+        /// emitter controllers, 1,600 hold a birth rate with no data block at all — a
+        /// constant — and 1,055 an emitter-active track with no data either. Of the 649
+        /// that do carry keys, every one's first and last key time is the controller's
+        /// own `Start Time` and `Stop Time`: the commonest shape by far is `[1, 0]`,
+        /// on at the start and off at the stop. Only a dozen or so blink.
+        ///
+        /// Nothing is lost on the ones that do, because the carrier takes the whole
+        /// interpolator and its data block, keys included (see
+        /// <see cref="FbxInterpolatorCodec"/>). A controller a sequence names still
+        /// belongs to that sequence and is left to it.
+        /// </param>
         public static void Write(
-            FbxObject node, NifModel model, NifItem block, IReadOnlySet<NifItem>? sequenced = null)
+            FbxObject node,
+            NifModel model,
+            NifItem block,
+            IReadOnlySet<NifItem>? sequenced = null,
+            bool configuration = false)
         {
             var controllers = new List<NifItem>();
 
@@ -94,8 +127,11 @@ namespace NIFBX.Fbx
                  controller is not null;
                  controller = model.GetRef(controller, "Next Controller"))
             {
-                if (IsStructural(model, controller) && sequenced?.Contains(controller) != true)
+                if (IsStructural(model, controller, configuration)
+                    && sequenced?.Contains(controller) != true)
+                {
                     controllers.Add(controller);
+                }
             }
 
             if (controllers.Count == 0)
@@ -175,16 +211,24 @@ namespace NIFBX.Fbx
         /// Keyed by class and by the same controller id `NifAnimWriter` uses to tell two
         /// controllers of one class apart, so a node with several is unambiguous.
         /// </remarks>
+        /// <inheritdoc cref="Write" path="/param[@name='configuration']"/>
         public static void WriteAnimatedFields(
-            FbxObject node, NifModel model, NifItem block, IReadOnlySet<NifItem>? sequenced = null)
+            FbxObject node,
+            NifModel model,
+            NifItem block,
+            IReadOnlySet<NifItem>? sequenced = null,
+            bool configuration = false)
         {
             for (NifItem? controller = model.GetRef(block, "Controller");
                  controller is not null;
                  controller = model.GetRef(controller, "Next Controller"))
             {
                 // The ones Write already carries whole are not this carrier's business.
-                if (IsStructural(model, controller) && sequenced?.Contains(controller) != true)
+                if (IsStructural(model, controller, configuration)
+                    && sequenced?.Contains(controller) != true)
+                {
                     continue;
+                }
 
                 foreach ((NifItem item, string key) in AnimatedFieldsOf(model, controller))
                     node.Properties.SetUserString(key, NifFieldCodec.Format(model, item));

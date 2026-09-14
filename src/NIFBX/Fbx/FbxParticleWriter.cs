@@ -124,7 +124,11 @@ namespace NIFBX.Fbx
         /// carried like any other, with array position breaking its ties.
         /// </remarks>
         public static void AddParticleSystem(
-            FbxScene scene, FbxObject node, NifModel model, NifItem system)
+            FbxScene scene,
+            FbxObject node,
+            NifModel model,
+            NifItem system,
+            IReadOnlySet<NifItem>? sequenced = null)
         {
             node.Properties.SetUserString(TypeProperty, system.Name);
 
@@ -155,7 +159,7 @@ namespace NIFBX.Fbx
                 }
             }
 
-            AddStructuralControllers(node, model, system);
+            AddStructuralControllers(node, model, system, sequenced);
         }
 
         /// <summary>The property counting the system's structural controllers.</summary>
@@ -177,8 +181,9 @@ namespace NIFBX.Fbx
         /// carrier itself lives in <see cref="FbxNodeControllers"/> and every node uses
         /// it. This is the particle system's call into it.
         /// </remarks>
-        private static void AddStructuralControllers(FbxObject node, NifModel model, NifItem system) =>
-            FbxNodeControllers.Write(node, model, system);
+        private static void AddStructuralControllers(
+            FbxObject node, NifModel model, NifItem system, IReadOnlySet<NifItem>? sequenced) =>
+            FbxNodeControllers.Write(node, model, system, sequenced, configuration: true);
 
         /// <inheritdoc cref="FbxNodeControllers.Read"/>
         public static void ReadStructuralControllers(

@@ -549,3 +549,87 @@ controllers that animate a *custom property*: `NiPSysEmitterCtlr` and its
 interpolators, because Blender's importer reads `location`, `rotation_euler` and
 `scale` and discards animated custom properties. The static values survive; only the
 curves are gone. That is a separate problem and not this one.
+
+
+## A system's own controllers are settings, not a clip
+
+`NiPSysEmitterCtlr` holds the birth rate and the emission window. Both are what the
+effect *is*, in the same way the modifier stack is — and the rest of the system
+already travels as settings on its node (§8). But it holds interpolators, and holding
+an interpolator is what sends a controller down the animation route, so it went into
+the stack this port invents for controllers no sequence names (`fbx-nif-conversion-spec.md`
+§4.7.3). Blender discards that stack, because its FBX importer reads `location`,
+`rotation_euler` and `scale` and builds no f-curves for custom properties.
+
+That is a lot of machinery to lose something that is barely animated. Measured over
+all 22,047 meshes in the game's archives — 1,525 particle systems, 1,704 emitter
+controllers:
+
+| | |
+| --- | --- |
+| birth rate constant, no data block at all | **1,600 of 1,704** |
+| emitter-active track with no data either (always on) | **1,055 of 1,704** |
+| of the 649 with keys, first/last key time = the controller's own `Start Time`/`Stop Time` | **649 of 649** |
+
+The shapes those 649 take:
+
+```
+[1, 0]           504   on at the start, off at the stop
+[1, 0, 0]         63   the same window, redundant trailing zeroes
+[1, 0, 0, 0]      54
+[0, 1, 0]          6
+[1, 0, 1, 1, 0]    4   genuinely blinking
+[1, 0, 1, 0, 1, 0, 0]  3
+```
+
+So for ~94% of them the whole controller is three numbers: a rate, an on time and an
+off time.
+
+**A controller on a particle system that no sequence names now travels with the
+system**, whatever interpolators it holds — `FbxNodeControllers.Write(configuration:
+true)`, and `NifAnimAccess.IsConfiguration` is where the animation route steps back.
+Nothing is lost on the ones that do animate, because the structural carrier takes the
+whole interpolator and its data block, keys included (`FbxInterpolatorCodec`). A
+controller a *sequence* names is left to that sequence, which is a clip a DCC tool can
+actually play and edit.
+
+What this reaches, across the game:
+
+| controller | on systems | standalone, so carried here | named by a sequence |
+| --- | ---: | ---: | ---: |
+| `NiPSysModifierActiveCtlr` | 2735 | 951 | 1784 |
+| `NiPSysUpdateCtlr` | 1704 | 1704 | 0 |
+| `NiPSysEmitterCtlr` | 1562 | 507 | 1055 |
+| `NiPSysEmitterSpeedCtlr` | 233 | 39 | 194 |
+| `NiPSysGravityStrengthCtlr` | 230 | 29 | 201 |
+| `BSPSysMultiTargetEmitterCtlr` | 142 | 142 | 0 |
+
+Only the system's own chain. A shader property hanging off it is a different host with
+a different answer: a colour fading over time is animation, whoever it belongs to.
+
+The campfire through Blender: 81 blocks before the material mirror, 87 with it, **99
+with this** — and the fields come back exactly, flags and phase included. What it
+still loses is the shader's own controllers, which are that other case.
+
+### What Blender does with it
+
+SKDcc's particle add-on reads the window straight into Blender's own fields rather
+than leaving it on a custom property:
+
+- `settings.frame_start` / `frame_end` ← the emitter-active track's first on-period,
+  falling back to the controller's `Start Time`/`Stop Time`. Before this the window was
+  the whole scene range: a campfire that emits for 3.3 seconds ran for 250 frames.
+- `settings.count` ← rate × the window's length. Blender's `count` is the total emitted
+  between those two frames and the NIF gives a rate per second, so the two are the same
+  statement once multiplied.
+
+`NiPSysData`'s `BS Max Vertices` is **not** that number, though it was being used as
+it. It is the engine's allocation for particles alive *at once* — roughly rate ×
+lifetime, which is what the vanilla numbers show: the campfire's small flames emit 15 a
+second and live 0.47 of one, so seven are up at a time and the buffer is nine. Capping
+the total by it made that flame emit nine particles over three and a third seconds
+instead of fifty.
+
+A track with more than one on-period cannot be carried: a Blender particle system has
+one emission window. The add-on uses the first and says so in its report. Of the game's
+1,704 emitter controllers, about a dozen blink.
