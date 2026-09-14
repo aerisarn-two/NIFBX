@@ -896,7 +896,16 @@ namespace NIFBX.Conversion
             scene.Connect(fbxMaterial, holder);
 
             if (geometry is not null)
+            {
                 FbxMeshWriter.AddSingleMaterialElement(geometry);
+                return;
+            }
+
+            // With no geometry there is no mesh for the material to be a material of,
+            // and a DCC tool is entitled to conclude there is nothing to shade: Blender
+            // imports such a node as an Empty and exports it back with the material
+            // gone. So it is mirrored onto the node, where user properties survive.
+            FbxNodeMaterial.Write(holder, fbxMaterial);
         }
 
         /// <summary>

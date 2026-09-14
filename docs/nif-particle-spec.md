@@ -502,3 +502,50 @@ BSPSysMultiTargetEmitterCtlr -> NiPSysUpdateCtlr                               2
 se-cmd attached controllers by appending to the chain, and the run switch is attached
 before the emitter controller a sequence names, so it became the *head* and the file came
 back inverted. The attach step now keeps it at the tail.
+
+
+## The shader travels on the node, not only on the material
+
+A particle system is a shape: it has a `Shader Property` and an `Alpha Property` like
+any other, and they are what the effect actually looks like — the flame texture, the
+additive blend, the base colour. It has no geometry for them to dress (§2.1), so the
+export hangs them off the node itself: a `Model` with a `Material` connected and no
+`Geometry` under it.
+
+**No DCC tool has to honour that.** Blender reads a geometry-less `Model` as an Empty,
+an Empty has no material slot, and its exporter writes none back. A campfire through
+Blender came home missing three `BSEffectShaderProperty` and three `NiAlphaProperty`
+blocks — one pair per system, 108 blocks down to 81 — while all seven of its real
+meshes kept theirs. The same happens to an empty shape (a `BSTriShape` that declares
+vertices and stores none), which is the other node in the format with a material and
+no mesh.
+
+So the material is **mirrored onto the node** as user-defined properties, which is the
+one thing a DCC tool does carry — it is how the whole system already travels (§8).
+`Fbx/FbxNodeMaterial.cs` writes every property of the material a second time under a
+`nodemat_` prefix, encoding each one's FBX type, sub-type, flags and values so that it
+comes back as the property it was rather than as text.
+
+Three things are worth stating about the shape of this:
+
+- It is **additive**. The `Material` object is still written exactly as before. It is
+  the standard FBX construct, every tool shows it, and nothing that reads these files
+  today sees a difference.
+- The **material wins**. On import the mirror is consulted only when no `Material` is
+  connected to the node. A user who edits the shading in a DCC tool expects that edit
+  to count, and the mirror is only ever a copy of what left.
+- It is written **only where it is needed** — where there is no geometry. A mesh keeps
+  its material through any tool, so mirroring it would be bytes for nothing on every
+  shape in the game. The campfire's FBX grows 261 KB to 275 KB for its three systems.
+
+Textures are not mirrored, because nothing reads them back: an effect shader names its
+own `Source Texture` and `Greyscale Texture` in its own fields (carried under `es_`),
+and the `Texture` objects exist for the DCC tool's sake.
+
+With this the campfire comes back at 87 blocks rather than 81, and the four systems of
+`fxsprigganswarm` keep their shading too — source texture, base colour, colour scale
+and alpha flags identical per system. What a Blender pass still loses is the
+controllers that animate a *custom property*: `NiPSysEmitterCtlr` and its
+interpolators, because Blender's importer reads `location`, `rotation_euler` and
+`scale` and discards animated custom properties. The static values survive; only the
+curves are gone. That is a separate problem and not this one.

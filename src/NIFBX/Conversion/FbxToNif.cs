@@ -3687,6 +3687,12 @@ namespace NIFBX.Conversion
             FbxObject? material = _scene.ChildrenOf(holder.Id)
                 .FirstOrDefault(o => o.Class == "Material" && !FbxLodSizes.IsLevelMaterial(o.Name));
 
+            // A node with no geometry carries a copy of its material in its own
+            // properties, because a DCC tool that sees nothing to shade drops the
+            // material object. The object itself is still preferred when it is there:
+            // it is the one a user can edit, and the mirror is only ever what left.
+            material ??= FbxNodeMaterial.Read(holder);
+
             if (material is null)
                 return;
 
