@@ -10,10 +10,11 @@ namespace NIFBX.Fbx
     /// <c>Model</c> nodes that carry them.
     /// </summary>
     /// <remarks>
-    /// Emits the layout FBXWrangler produces: attributes mapped
-    /// <c>ByControlPoint</c> / <c>Direct</c>, one triangle per polygon, and the UV
-    /// element named <c>"UV Map"</c>. That name is not cosmetic — Blender will not
-    /// merge UV maps across meshes unless they share a name.
+    /// Emits the layout FBXWrangler produces: attributes mapped one per vertex
+    /// (see <see cref="PerVertex"/> for how the file has to spell that), one
+    /// triangle per polygon, and the UV element named <c>"UV Map"</c>. That name is
+    /// not cosmetic — Blender will not merge UV maps across meshes unless they share
+    /// a name.
     /// </remarks>
     public static class FbxMeshWriter
     {
@@ -25,6 +26,37 @@ namespace NIFBX.Fbx
         /// were derived from — a tangent frame only means anything with respect to one.
         /// </summary>
         public const string TangentElementName = UvElementName;
+
+        /// <summary>
+        /// How a per-vertex layer element says it is per-vertex.
+        /// </summary>
+        /// <remarks>
+        /// `ByVertice`, which is a legacy spelling and the only one any reader
+        /// accepts. `ByControlPoint` is the name of the *API* enum --
+        /// `FbxLayerElement::eByControlPoint` -- and writing it into the file, which
+        /// is what this did, produces an element every reader parses as having no
+        /// mapping at all:
+        ///
+        /// | | |
+        /// | --- | --- |
+        /// | Autodesk SDK, `ByControlPoint` | `mode=eNone(0) direct=0` |
+        /// | Autodesk SDK, `ByVertice` | `mode=eByControlPoint(1) direct=15` |
+        /// | Blender, `ByControlPoint` | "mapping type unsupported", layer filled with zeroes |
+        /// | Blender, `ByVertice` | the UVs the mesh actually has |
+        ///
+        /// Nothing noticed for a long time because both sides of this port share the
+        /// reader, and the reader accepts every spelling (`FbxMeshReader`, which is
+        /// why files written before this still load). So the round trip closed over
+        /// it while every mesh that left here arrived in a DCC tool with its UVs, its
+        /// vertex colours and its normals flattened to zero -- a campfire opened in
+        /// Blender with its textures wired up correctly and every triangle sampling
+        /// one texel of them.
+        ///
+        /// Blender's importer takes `ByPolygonVertex` too, and that is the commoner
+        /// spelling in files exporters write, but it is not what this data is: the
+        /// NIF stores one value per vertex and so does this.
+        /// </remarks>
+        private const string PerVertex = "ByVertice";
 
         private const int GeometryVersion = 124;
         private const int LayerElementVersion = 101;
@@ -128,7 +160,7 @@ namespace NIFBX.Fbx
                 var element = new FbxNode("LayerElementUV", 0);
                 element.Nodes.Add(new FbxNode("Version", LayerElementVersion));
                 element.Nodes.Add(new FbxNode("Name", UvElementName));
-                element.Nodes.Add(new FbxNode("MappingInformationType", "ByControlPoint"));
+                element.Nodes.Add(new FbxNode("MappingInformationType", PerVertex));
                 element.Nodes.Add(new FbxNode("ReferenceInformationType", "Direct"));
                 element.Nodes.Add(new FbxNode("UV", uv));
 
@@ -169,7 +201,7 @@ namespace NIFBX.Fbx
                 var element = new FbxNode("LayerElementUV", 1);
                 element.Nodes.Add(new FbxNode("Version", LayerElementVersion));
                 element.Nodes.Add(new FbxNode("Name", VertexExtraElementName));
-                element.Nodes.Add(new FbxNode("MappingInformationType", "ByControlPoint"));
+                element.Nodes.Add(new FbxNode("MappingInformationType", PerVertex));
                 element.Nodes.Add(new FbxNode("ReferenceInformationType", "Direct"));
                 element.Nodes.Add(new FbxNode("UV", extra));
 
@@ -192,7 +224,7 @@ namespace NIFBX.Fbx
                 var element = new FbxNode("LayerElementColor", 0);
                 element.Nodes.Add(new FbxNode("Version", LayerElementVersion));
                 element.Nodes.Add(new FbxNode("Name", "VertexColor"));
-                element.Nodes.Add(new FbxNode("MappingInformationType", "ByControlPoint"));
+                element.Nodes.Add(new FbxNode("MappingInformationType", PerVertex));
                 element.Nodes.Add(new FbxNode("ReferenceInformationType", "Direct"));
                 element.Nodes.Add(new FbxNode("Colors", colors));
 
@@ -307,7 +339,7 @@ namespace NIFBX.Fbx
             var element = new FbxNode(elementName, 0);
             element.Nodes.Add(new FbxNode("Version", LayerElementVersion));
             element.Nodes.Add(new FbxNode("Name", name));
-            element.Nodes.Add(new FbxNode("MappingInformationType", "ByControlPoint"));
+            element.Nodes.Add(new FbxNode("MappingInformationType", PerVertex));
             element.Nodes.Add(new FbxNode("ReferenceInformationType", "Direct"));
             element.Nodes.Add(new FbxNode(arrayName, data));
 

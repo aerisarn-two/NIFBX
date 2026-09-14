@@ -138,8 +138,22 @@ namespace NIFBX.Tests
             string uvName = (string)uv!.Nodes.First(n => n.Name == "Name").Properties[0]!;
             Assert.Equal(FbxMeshWriter.UvElementName, uvName);
 
-            // ByControlPoint/Direct is what FBXWrangler emits.
-            Assert.Equal("ByControlPoint",
+            // One value per vertex, which the file has to spell `ByVertice`.
+            //
+            // This asserted `ByControlPoint` for a long time, because that is what
+            // this project wrote and what the FBX *API* calls the mode. It is not
+            // what a reader accepts: Blender's importer knows only `ByPolygonVertex`
+            // and `ByVertice`, and the Autodesk SDK reads a `ByControlPoint` element
+            // as having no mapping and no values at all --
+            //
+            //   | file says        | the SDK reads                  |
+            //   | ByControlPoint   | mode=eNone(0) direct=0         |
+            //   | ByVertice        | mode=eByControlPoint(1) direct=15 |
+            //
+            // So every mesh this wrote reached a DCC tool with its UVs, its vertex
+            // colours and its normals flattened to zero, and the test agreed with
+            // the writer rather than with anything that had to read it.
+            Assert.Equal("ByVertice",
                 uv.Nodes.First(n => n.Name == "MappingInformationType").Properties[0]);
             Assert.Equal("Direct",
                 uv.Nodes.First(n => n.Name == "ReferenceInformationType").Properties[0]);

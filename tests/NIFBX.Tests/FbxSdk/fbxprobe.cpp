@@ -143,6 +143,105 @@ static void Curve(FbxNode* node, FbxAnimLayer* layer, const char* want)
         Curve(node->GetChild(i), layer, want);
 }
 
+
+// Every mesh's UV set, as the SDK resolves it. Which is the question a NIF -> FBX
+// -> Blender trip raises and cannot answer for itself: Blender only knows the
+// spelling `ByVertice` for a per-vertex layer, the FBX spec also allows
+// `ByControlPoint`, and asking a reader that is neither says whether a file
+// written for one is still readable by the other.
+static void Uvs(FbxNode* node)
+{
+    if (FbxMesh* mesh = node->GetMesh())
+    {
+        // By index as well as by name: a lookup that fails by name says nothing
+        // about whether the element was parsed at all.
+        printf("uvcount node=%s elements=%d normals=%d colors=%d\n",
+               node->GetName(), mesh->GetElementUVCount(),
+               mesh->GetElementNormalCount(), mesh->GetElementVertexColorCount());
+
+        for (int e = 0; e < mesh->GetElementUVCount(); ++e)
+        {
+            const FbxGeometryElementUV* byIndex = mesh->GetElementUV(e);
+            printf("uvbyindex node=%s slot=%d name=%s mode=%d direct=%d index=%d\n",
+                   node->GetName(), e, byIndex->GetName(),
+                   (int)byIndex->GetMappingMode(),
+                   byIndex->GetDirectArray().GetCount(),
+                   byIndex->GetIndexArray().GetCount());
+        }
+
+        FbxStringList names;
+        mesh->GetUVSetNames(names);
+
+        for (int s = 0; s < names.GetCount(); ++s)
+        {
+            const char* set = names.GetStringAt(s);
+            double lowU = 1e30, highU = -1e30, lowV = 1e30, highV = -1e30;
+            int read = 0;
+
+            for (int p = 0; p < mesh->GetPolygonCount(); ++p)
+            {
+                for (int v = 0; v < mesh->GetPolygonSize(p); ++v)
+                {
+                    FbxVector2 value;
+                    bool unmapped = false;
+
+                    if (!mesh->GetPolygonVertexUV(p, v, set, value, unmapped) || unmapped)
+                        continue;
+
+                    lowU = value[0] < lowU ? value[0] : lowU;
+                    highU = value[0] > highU ? value[0] : highU;
+                    lowV = value[1] < lowV ? value[1] : lowV;
+                    highV = value[1] > highV ? value[1] : highV;
+                    ++read;
+                }
+            }
+
+            const FbxGeometryElementUV* element = mesh->GetElementUV(set);
+            const char* mapping = "none";
+            int mode = -1, direct = 0, indexes = 0;
+            double dlowU = 1e30, dhighU = -1e30, dlowV = 1e30, dhighV = -1e30;
+
+            if (element)
+            {
+                mode = (int)element->GetMappingMode();
+
+                switch (element->GetMappingMode())
+                {
+                    case FbxGeometryElement::eByControlPoint: mapping = "ByControlPoint"; break;
+                    case FbxGeometryElement::eByPolygonVertex: mapping = "ByPolygonVertex"; break;
+                    case FbxGeometryElement::eByPolygon: mapping = "ByPolygon"; break;
+                    case FbxGeometryElement::eAllSame: mapping = "AllSame"; break;
+                    case FbxGeometryElement::eNone: mapping = "eNone"; break;
+                    default: mapping = "other"; break;
+                }
+
+                // Straight off the element, rather than through
+                // GetPolygonVertexUV, which resolves only some mapping modes.
+                direct = element->GetDirectArray().GetCount();
+                indexes = element->GetIndexArray().GetCount();
+
+                for (int i = 0; i < direct; ++i)
+                {
+                    FbxVector2 value = element->GetDirectArray().GetAt(i);
+                    dlowU = value[0] < dlowU ? value[0] : dlowU;
+                    dhighU = value[0] > dhighU ? value[0] : dhighU;
+                    dlowV = value[1] < dlowV ? value[1] : dlowV;
+                    dhighV = value[1] > dhighV ? value[1] : dhighV;
+                }
+            }
+
+            printf("uv node=%s set=%s mapping=%s(%d) direct=%d index=%d polyRead=%d "
+                   "directU=%.4f..%.4f directV=%.4f..%.4f\n",
+                   node->GetName(), set, mapping, mode, direct, indexes, read,
+                   direct ? dlowU : 0.0, direct ? dhighU : 0.0,
+                   direct ? dlowV : 0.0, direct ? dhighV : 0.0);
+        }
+    }
+
+    for (int i = 0; i < node->GetChildCount(); ++i)
+        Uvs(node->GetChild(i));
+}
+
 int main(int argc, char** argv)
 {
     if (argc < 3)
@@ -188,6 +287,10 @@ int main(int argc, char** argv)
     if (strcmp(what, "where") == 0)
     {
         Where(scene->GetRootNode());
+    }
+    else if (strcmp(what, "uv") == 0)
+    {
+        Uvs(scene->GetRootNode());
     }
     else if (strcmp(what, "bones") == 0)
     {
