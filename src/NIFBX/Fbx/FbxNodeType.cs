@@ -26,6 +26,36 @@ namespace NIFBX.Fbx
     /// </remarks>
     public static class FbxNodeType
     {
+        /// <summary>
+        /// Marks a node a DCC add-on made for itself, which is not part of the model.
+        /// </summary>
+        /// <remarks>
+        /// A tool that reads one of these files often has to build scaffolding to show
+        /// what it found: SKDcc's particle add-on makes an emitter volume to emit from,
+        /// a force field per gravity modifier and a quad for the particles to be,
+        /// because Blender has no emitter, no gravity term and no sprite of its own.
+        /// None of that is in the NIF, and all of it is in the scene.
+        ///
+        /// Exported and converted back, it became model: a campfire built in Blender and
+        /// sent straight back came home at 131 blocks against 108, with eleven NiNodes
+        /// and nine BSTriShapes that were never in the file. Clearing the add-on's work
+        /// first avoids it, and depends on remembering to.
+        ///
+        /// So the scaffolding says so and this walk passes over it. One name, owned
+        /// here rather than by any one add-on, so a second tool needs no second rule.
+        /// </remarks>
+        public const string GeneratedProperty = "skdcc_generated";
+
+        /// <summary>Whether a node is scaffolding rather than part of the model.</summary>
+        /// <remarks>
+        /// By the property being there at all, whatever type it carries. A DCC tool
+        /// writes whatever its own scripting language calls true -- Blender exports
+        /// an integer 1 -- and asking for it as a string found nothing on every one
+        /// of them.
+        /// </remarks>
+        public static bool IsGenerated(FbxObject node) =>
+            node.Properties.Contains(GeneratedProperty);
+
         /// <summary>The property the block type travels in.</summary>
         public const string Property = "nif_block_type";
 

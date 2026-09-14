@@ -472,6 +472,17 @@ namespace NIFBX.Conversion
         {
             string name = NameEncoding.Unsanitize(model.Name);
 
+            // Scaffolding a DCC tool built to show the file with, which was never in
+            // it (see FbxNodeType.GeneratedProperty). First, before anything decides
+            // what kind of node this is: an emitter volume and a particle sprite are
+            // meshes, and the geometry branch below would have made shapes of them.
+            //
+            // Its children go too. Blender bakes each particle out as a real object
+            // parented to the emitter -- `smoke02_emitter|smoke02_sprite|Dupli|50` --
+            // so skipping the node alone would leave fifty copies of the quad behind.
+            if (FbxNodeType.IsGenerated(model))
+                return;
+
             // Collision bodies are leaves keyed off their name suffix, not ordinary
             // nodes, and are attached to their parent rather than listed as a child.
             if (name.EndsWith("_rb", StringComparison.Ordinal) || name.EndsWith("_sp", StringComparison.Ordinal))
