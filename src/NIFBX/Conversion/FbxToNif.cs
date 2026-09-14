@@ -4054,6 +4054,26 @@ namespace NIFBX.Conversion
                 paths[slot] = MaterialData.NormalizeTexturePath(path);
             }
 
+            // A slot past the second has no standard FBX property to hang a texture
+            // off, so the export names one after the slot -- and Blender declines the
+            // connection to it, saying "material link 'slot5' ignored". The path
+            // itself is written beside it as a user property and does survive, so it
+            // stands in where the connection has gone: of 24 effect meshes through
+            // Blender, all three that used a cubemap lost it and its mask, while
+            // every diffuse and normal came back.
+            //
+            // Second, not first. The connection is what a DCC tool lets a user
+            // rewire, so a texture actually hanging on the slot wins over the
+            // record of what was exported.
+            for (int slot = MaterialData.NormalSlot + 1; slot < SlotCount; slot++)
+            {
+                if (!string.IsNullOrEmpty(paths[slot]))
+                    continue;
+
+                if (material.Properties.GetString($"slot{slot + 1}") is { Length: > 0 } carried)
+                    paths[slot] = MaterialData.NormalizeTexturePath(carried);
+            }
+
             // Shapes that shared a set in the source share one here. Keyed on which
             // block it was rather than on the paths, since a file can hold two
             // identical sets on purpose -- rebuilding by content would merge those.
