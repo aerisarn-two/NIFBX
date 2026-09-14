@@ -568,6 +568,11 @@ namespace NIFBX.Conversion
             FbxNodeType.ReadFlags(model, _model, node);
             _model.SetTransform(node, transform);
 
+            // A billboard's rotation belongs to the engine, not to the scene: a DCC
+            // tool showing one aims it at the camera, and an exporter writes that
+            // aim out as the node's transform. The file's own is carried and wins.
+            FbxNodeType.ReadBillboardRotation(model, _model, node);
+
             // Keyed by the FBX name rather than the NIF one: that is what an animation
             // track names, and a file's unnamed nodes would otherwise share one key.
             _nodesByName[name] = node;

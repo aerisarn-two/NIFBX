@@ -62,6 +62,47 @@ namespace NIFBX.Fbx
         /// <summary>Prefix on the fields a specialised class adds to its base.</summary>
         public const string FieldPrefix = "nif_own_";
 
+        /// <summary>A billboard node's own orientation, carried so it can be put back.</summary>
+        /// <remarks>
+        /// A <c>NiBillboardNode</c> turns to face the camera every frame, so the
+        /// rotation in the file is a starting value the engine overrides rather than
+        /// something a scene should be trusted to preserve. The campfire has two: the
+        /// glow over the fire (mode 3, always face the camera) and the heat haze
+        /// (mode 1, rotate about up).
+        ///
+        /// That matters because the honest way to show one in Blender is a Track To
+        /// constraint, and Blender's FBX exporter writes the *evaluated* transform: a
+        /// plane authored at no rotation at all came back at 111.8, 0, -143.1 after a
+        /// round trip through one. Carrying the file's own rotation and preferring it
+        /// on the way back lets a DCC tool aim these however it likes without the
+        /// aiming becoming the file.
+        /// </remarks>
+        public const string BillboardRotationProperty = "nif_billboard_rotation";
+
+        /// <summary>Whether a block turns to face the viewer.</summary>
+        public static bool IsBillboard(NifModel model, NifItem block) =>
+            model.BlockInherits(block, "NiBillboardNode");
+
+        /// <summary>Records a billboard's authored rotation.</summary>
+        public static void WriteBillboardRotation(FbxObject node, NifModel model, NifItem block)
+        {
+            if (!IsBillboard(model, block) || model.FindItem(block, "Rotation") is not { } rotation)
+                return;
+
+            node.Properties.SetUserString(
+                BillboardRotationProperty, NifFieldCodec.Format(model, rotation));
+        }
+
+        /// <summary>Puts it back, over whatever the scene rotated it to.</summary>
+        public static void ReadBillboardRotation(FbxObject node, NifModel model, NifItem block)
+        {
+            if (node.Properties.GetString(BillboardRotationProperty) is not { Length: > 0 } text)
+                return;
+
+            if (model.FindItem(block, "Rotation") is { } rotation)
+                NifFieldCodec.Assign(model, rotation, text);
+        }
+
         /// <summary>Records which block an exported node came from.</summary>
         public static void Write(FbxObject node, NifItem block) =>
             node.Properties.SetUserString(Property, block.Name);

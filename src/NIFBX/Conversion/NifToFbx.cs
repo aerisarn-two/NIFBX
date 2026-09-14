@@ -324,6 +324,7 @@ namespace NIFBX.Conversion
                 FbxNodeType.Write(node, block);
             else
                 FbxNodeType.WriteWithFields(node, _model, block, "NiNode", MultiBoundFields);
+                FbxNodeType.WriteBillboardRotation(node, _model, block);
 
             // A block with no name at all -- the game's cameras have none -- is
             // exported under its class name, since FBX has no anonymous object. This
