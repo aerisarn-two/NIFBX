@@ -27,7 +27,73 @@ namespace NIFBX.Fbx
                     sequences.Add(sequence);
             }
 
+            ReadCarriedVisibility(scene, sequences);
+
             return sequences;
+        }
+
+        /// <summary>
+        /// Puts back a visibility track whose curve did not survive the scene.
+        /// </summary>
+        /// <remarks>
+        /// The curve is the real carrier and is read first; this only answers for a
+        /// node whose curve has gone. It goes because Blender drops an FBX
+        /// <c>Visibility</c> curve on import -- into nothing, not even
+        /// <c>hide_viewport</c> -- and writes its own stacks on the way out, so the
+        /// stack that held it is not there either. A draugr's skeleton came back from
+        /// Blender without the two that hide its <c>WEAPON</c> and <c>SHIELD</c>.
+        ///
+        /// The sequence may have to be rebuilt as well as the track. These
+        /// controllers hang on their nodes rather than being named by a sequence, so
+        /// they travel in the invented <see cref="NifAnimAccess.DefaultSequenceName"/>
+        /// stack, and once its only two curves are gone Blender has nothing left to
+        /// write a stack about. Recreating it by name puts the controllers back where
+        /// they were, attached to their targets.
+        /// </remarks>
+        private static void ReadCarriedVisibility(FbxScene scene, List<AnimSequence> sequences)
+        {
+            foreach (FbxObject model in scene.OfClass("Model"))
+            {
+                if (FbxVisibilityCodec.Read(model) is not { } carried)
+                    continue;
+
+                AnimTrack? existing = sequences
+                    .SelectMany(s => s.Tracks)
+                    .FirstOrDefault(t => t.BindId == model.Id);
+
+                // The curve made it, so the node already says this and saying it twice
+                // would write the controller twice.
+                if (existing is not null
+                    && existing.Properties.Any(p => p.Name == AnimProperty.VisibilityName))
+                {
+                    continue;
+                }
+
+                string wanted = FbxVisibilityCodec.SequenceOf(model);
+                AnimSequence? sequence = sequences.FirstOrDefault(
+                    s => string.Equals(s.Name, wanted, StringComparison.Ordinal));
+
+                if (sequence is null)
+                {
+                    sequence = new AnimSequence { Name = wanted };
+                    sequences.Add(sequence);
+                }
+
+                AnimTrack? track = sequence.Tracks.FirstOrDefault(t => t.BindId == model.Id);
+
+                if (track is null)
+                {
+                    track = new AnimTrack
+                    {
+                        NodeName = NameEncoding.Unsanitize(model.Name),
+                        BindId = model.Id,
+                    };
+
+                    sequence.Tracks.Add(track);
+                }
+
+                track.Properties.Add(carried);
+            }
         }
 
         /// <summary>

@@ -189,7 +189,16 @@ namespace NIFBX.Fbx
                         MirrorConstant(model, property, value);
                     }
                     else if (model is not null)
+                    {
                         AddPropertyChannel(scene, layer, model, property);
+
+                        // And again on the node, for the one property whose curve a
+                        // DCC tool is likely to drop on the floor. See
+                        // `FbxVisibilityCodec`: Blender reads no Visibility curve and
+                        // writes none, so a draugr's WEAPON and SHIELD come back from
+                        // it with nothing to hide them.
+                        FbxVisibilityCodec.Write(model, property, stack.Name);
+                    }
 
                     AddInterpolatorType(stack, track.NodeName, property);
                     AddDataId(stack, track, property);
