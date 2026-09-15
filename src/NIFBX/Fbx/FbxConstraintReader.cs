@@ -37,11 +37,32 @@ namespace NIFBX.Fbx
         /// </remarks>
         public static bool IsAttachmentPoint(FbxObject node) =>
             node.Class == "Model"
-            && node.Name.Contains(FbxConstraintWriter.NameSeparator, StringComparison.Ordinal)
+            && (node.Name.Contains(FbxConstraintWriter.NameSeparator, StringComparison.Ordinal)
+                || Declared(node))
             // The node carrying the far frame is a child of an attachment point and
             // inherits its name, separator and all. It is half of a joint, not
             // another one.
             && node.Properties.GetString(FbxConstraintWriter.FrameProperty) != "A";
+
+        /// <summary>Whether the node says it is a constraint, rather than spelling it.</summary>
+        /// <remarks>
+        /// The name is how ck-cmd recognises one, and it stays the first test so its
+        /// scenes keep working. But a name is a poor place to keep a reference: it has
+        /// to hold both body names, which on a draugr runs to 85 characters, and
+        /// Blender caps an object name at 63 and quietly replaces the tail with a hash.
+        /// `..._rb_con_NPC_s_L_s_Hand_s__ob_LHnd_cb__rb_attach_point` comes back as
+        /// `..._rb_con_NPC4f2a91c6`, and a scene round-tripped through a DCC tool lost
+        /// the joint entirely.
+        ///
+        /// So a node that carries the properties is taken at its word. Those say the
+        /// same thing and are not length-limited, and they are already what the bodies
+        /// are read from below -- this only stops the name being load-bearing for
+        /// whether the node is looked at in the first place.
+        /// </remarks>
+        private static bool Declared(FbxObject node) =>
+            node.Properties.Contains(FbxConstraintWriter.TypeProperty)
+            || node.Properties.Contains(FbxConstraintWriter.BodyAProperty)
+            || node.Properties.Contains(FbxConstraintWriter.BodyBProperty);
 
         private static ConstraintImport? Read(FbxScene scene, FbxObject node)
         {
