@@ -66,7 +66,10 @@ namespace NIFBX.Tests
             // mass is treated as movable, which is how scenery falls through the world.
             ["Mass"] = "zeroed by the static motion profile, as ck-cmd does",
 
-            // The inertia tensor is computed from the shape and the mass (spec §5.7.2).
+            // The inertia tensor is carried where the file brought one and computed
+            // from the shape and the mass otherwise (spec §5.7.2). It still differs on
+            // a static, whose mass properties are dropped along with its mass -- which
+            // is the case every fixture here holds.
             ["m11"] = "inertia computed from the shape and mass",
             ["m12"] = "inertia computed from the shape and mass",
             ["m13"] = "inertia computed from the shape and mass",
@@ -94,8 +97,11 @@ namespace NIFBX.Tests
             ["MOPP Code/Build Type"] = "uninitialised in the source file (205 is 0xCD)",
 
             ["Consistency Flags"] = "not carried",
+
+            // A bounding sphere's centre, recomputed from the vertices. Not a rigid
+            // body's centre of mass, which shares the field name and is carried.
             ["Bounding Sphere"] = "recomputed from the vertices",
-            ["Center"] = "recomputed from the vertices",
+            ["Center"] = "a bounding sphere's, recomputed from the vertices",
 
             // The hull is refitted, so its corners and planes arrive in the fit's order
             // rather than Havok's. That the corners themselves all come back is asserted

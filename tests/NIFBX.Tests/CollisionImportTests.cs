@@ -123,6 +123,120 @@ namespace NIFBX.Tests
             Assert.Empty(warnings);
         }
 
+        /// <summary>
+        /// A body's centre of mass and inertia tensor come back as the file wrote them.
+        /// </summary>
+        /// <remarks>
+        /// Both are authored and neither was carried. The centre never reached the FBX
+        /// at all, so every body came back centred on its own origin; the tensor was
+        /// recomputed from the mass and the shape, which is the right answer for a body
+        /// somebody authored in a DCC tool and the wrong one for a body that arrived
+        /// with a tensor of its own. Bethesda's differ from the computed ones -- a
+        /// draugr's neck holds 0.485 where the computation gives 0.101 -- and between
+        /// them they were 59 of the 72 fields its skeleton came back disagreeing about.
+        ///
+        /// The values are put on the fixture here rather than found in one. The three
+        /// committed bodies centre themselves on their own origin and hold a tensor the
+        /// computation reproduces, so none of them can tell a carried value from a
+        /// recomputed one -- and the file that does hold real ones,
+        /// `TestNifFile_DeepGraph_SE`, holds them on statics, whose mass properties are
+        /// dropped on purpose (a static carrying a mass is treated as movable, which is
+        /// how scenery falls through the world).
+        /// </remarks>
+        [Fact]
+        public void ABodyKeepsTheCentreAndTensorItWasAuthoredWith()
+        {
+            NifModel source = NifModel.Load(PathTo("generate_rb.nif"), Db);
+            NifItem body = Assert.Single(Bodies(source));
+
+            // On a layer that simulates. Mass properties are dropped for a static, on
+            // purpose -- a static carrying a mass is treated as movable, which is how
+            // scenery falls through the world -- and every committed fixture is one.
+            Layer(source, body, "SKYL_BIPED");
+
+            // Numbers no formula would arrive at, so a recomputed answer cannot pass.
+            var centre = new NifVector4(0.125f, -0.375f, 0.5f, 0f);
+            source.FindItem(body, @"Rigid Body Info\Center")!.Value.Set(centre);
+
+            for (int i = 0; i < FbxRigidBodyInfo.InertiaFields.Count; i++)
+            {
+                source.FindItem(
+                    body, $@"Rigid Body Info\Inertia Tensor\{FbxRigidBodyInfo.InertiaFields[i]}")!
+                    .Value.SetFloat(1f + i);
+            }
+
+            NifModel rebuilt = RoundTrip(source);
+            NifItem after = Assert.Single(Bodies(rebuilt));
+
+            NifVector4 back = rebuilt.FindItem(after, @"Rigid Body Info\Center")!.Value.Get<NifVector4>();
+
+            Assert.Equal(centre.X, back.X, 5);
+            Assert.Equal(centre.Y, back.Y, 5);
+            Assert.Equal(centre.Z, back.Z, 5);
+
+            for (int i = 0; i < FbxRigidBodyInfo.InertiaFields.Count; i++)
+            {
+                Assert.Equal(
+                    1f + i,
+                    rebuilt.FindItem(
+                        after, $@"Rigid Body Info\Inertia Tensor\{FbxRigidBodyInfo.InertiaFields[i]}")!
+                        .Value.ToFloat(),
+                    4);
+            }
+        }
+
+        /// <summary>Puts a body on a named collision layer.</summary>
+        private static void Layer(NifModel model, NifItem body, string layer)
+        {
+            Assert.True(
+                model.Database.TryGetEnumOptionValue("SkyrimLayer", layer, out uint value),
+                $"nif.xml has no SkyrimLayer called {layer}");
+
+            // By type rather than by name: twelve things under a body are called
+            // `Layer`, and the one that decides is the one typed as the enum -- which
+            // is how `FbxCollisionMaterial.LayerOf` finds it.
+            NifItem field = Flatten(body).First(i => i.Type == FbxCollisionMaterial.LayerEnum);
+
+            field.Value.SetCount(value);
+        }
+
+        /// <summary>Every item under one, itself included.</summary>
+        private static IEnumerable<NifItem> Flatten(NifItem item)
+        {
+            yield return item;
+
+            foreach (NifItem child in item.Children)
+            {
+                // Not through a reference: that is another block, not part of this one.
+                if (child.Value.IsLink)
+                    continue;
+
+                foreach (NifItem inner in Flatten(child))
+                    yield return inner;
+            }
+        }
+
+        /// <summary>The bodies of a model, in block order.</summary>
+        private static IEnumerable<NifItem> Bodies(NifModel model) =>
+            model.Blocks.Where(b => b.Name is "bhkRigidBody" or "bhkRigidBodyT");
+
+        /// <summary>A model out to FBX and back, without going through a file first.</summary>
+        private static NifModel RoundTrip(NifModel source)
+        {
+            FbxDocument document = new NifToFbx(source).Convert();
+
+            NifModel rebuilt = new FbxToNif(new FbxScene(document), new FbxToNifOptions
+            {
+                LegendaryEdition = true
+            }).Convert(Db);
+
+            using var stream = new MemoryStream();
+            rebuilt.Save(stream);
+            stream.Position = 0;
+
+            return NifModel.Load(stream, Db);
+        }
+
         [Fact]
         public void CollisionAttachesToTheNodeItCameFrom()
         {

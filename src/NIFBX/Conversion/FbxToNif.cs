@@ -1098,17 +1098,25 @@ namespace NIFBX.Conversion
         }
 
         /// <summary>
-        /// Gives a body its mass and the inertia tensor that follows from it.
+        /// Gives a body its mass, its centre of mass and its inertia tensor.
         /// </summary>
         /// <remarks>
-        /// The two are not alike. The mass is authored and is carried across; the
-        /// tensor is a consequence of that mass and the shape, and is computed, because
-        /// ck-cmd's is computed too -- it asks Havok, and this arrives at the same
-        /// numbers the files ck-cmd generated hold.
+        /// All three are authored and all three are carried across when the scene has
+        /// them. The tensor is also *computable* -- it follows from the mass and the
+        /// shape, and ck-cmd computes one by asking Havok -- so a body that arrives
+        /// without one still gets one, which is what a body authored in a DCC tool
+        /// needs. What changed is the order: the file's own answer is preferred to the
+        /// computed answer where the file gave one.
         ///
-        /// A static keeps neither. Its layer is the whole of the decision, and a static
-        /// carrying a mass is treated as movable, which is how scenery ends up falling
-        /// through the world -- so the carried value is dropped rather than trusted.
+        /// They are not the same answer. A draugr's neck holds a tensor of 0.485 where
+        /// the computation gives 0.101, and its centre of mass sits at
+        /// (-0.0015, -0.0025, 0.2188) where nothing was written at all and every body
+        /// came back centred on its own origin -- 17 of that creature's 19.
+        ///
+        /// A static keeps none of it. Its layer is the whole of the decision, and a
+        /// static carrying a mass is treated as movable, which is how scenery ends up
+        /// falling through the world -- so the carried value is dropped rather than
+        /// trusted.
         /// </remarks>
         private void WriteMassProperties(NifItem body, NifItem shape, FbxObject bodyNode)
         {
@@ -1119,6 +1127,23 @@ namespace NIFBX.Conversion
                 return;
 
             SetFloat(body, @"Rigid Body Info\Mass", mass);
+
+            if (FbxRigidBodyInfo.CenterOf(bodyNode) is { } centre)
+                _model.FindItem(body, @"Rigid Body Info\Center")?.Value.Set(centre);
+
+            // The file's own tensor where it brought one, and a computed one otherwise.
+            if (FbxRigidBodyInfo.InertiaOf(bodyNode) is { } carried)
+            {
+                for (int i = 0; i < FbxRigidBodyInfo.InertiaFields.Count; i++)
+                {
+                    SetFloat(
+                        body,
+                        $@"Rigid Body Info\Inertia Tensor\{FbxRigidBodyInfo.InertiaFields[i]}",
+                        carried[i]);
+                }
+
+                return;
+            }
 
             if (InertiaOf(shape, mass) is not { } tensor)
                 return;

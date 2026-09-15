@@ -27,6 +27,28 @@ namespace NIFBX.Fbx
         /// <summary>The property the collision layer travels in.</summary>
         public const string LayerProperty = "nif_rb_layer";
 
+        /// <summary>The body's centre of mass, as the file authored it.</summary>
+        /// <remarks>
+        /// Carried because it is authored and was not being carried: it never reached
+        /// the FBX, so every body came back with a centre of mass of zero. Across a
+        /// draugr's 19 bodies that is 17 of them moved -- a neck whose mass sits at
+        /// (-0.0015, -0.0025, 0.2188) simulating as though it sat at its origin.
+        /// </remarks>
+        public const string CenterProperty = "nif_rb_center";
+
+        /// <summary>The body's inertia tensor, as the file authored it.</summary>
+        /// <remarks>
+        /// The tensor is a consequence of the mass and the shape and can be computed,
+        /// and <see cref="Conversion.FbxToNif"/> does compute one for a body that
+        /// arrives without it. That is the right answer for a body somebody authored
+        /// in a DCC tool and the wrong one for a body that came out of a file which
+        /// already had a tensor: Bethesda's own differ from the computed ones -- a
+        /// draugr's neck holds 0.485 where the computation gives 0.101 -- and handing
+        /// back a different number than the one that was handed over is not a round
+        /// trip, whatever else it is.
+        /// </remarks>
+        public const string InertiaProperty = "nif_rb_inertia";
+
         /// <summary>The property the contact callback delay travels in.</summary>
         /// <remarks>
         /// How long Havok waits before running a body's contact callbacks. nif.xml
@@ -174,6 +196,58 @@ namespace NIFBX.Fbx
                 Carried(2, fallback.SolverDeactivation));
         }
 
+        /// <summary>The nine fields of an inertia tensor, in the order nif.xml lists them.</summary>
+        private static readonly string[] Rows =
+            ["m11", "m12", "m13", "m21", "m22", "m23", "m31", "m32", "m33"];
+
+        /// <summary>A float written so it reads back as itself.</summary>
+        private static string Number(float value) =>
+            value.ToString("R", CultureInfo.InvariantCulture);
+
+        /// <summary>The centre of mass a node carries, or null where it carries none.</summary>
+        public static NifVector4? CenterOf(FbxObject bodyNode)
+        {
+            ArgumentNullException.ThrowIfNull(bodyNode);
+
+            float[] parts = Floats(bodyNode.Properties.GetString(CenterProperty), 4);
+
+            return parts.Length == 4 ? new NifVector4(parts[0], parts[1], parts[2], parts[3]) : null;
+        }
+
+        /// <summary>The inertia tensor a node carries, in `Rows` order, or null.</summary>
+        public static IReadOnlyList<float>? InertiaOf(FbxObject bodyNode)
+        {
+            ArgumentNullException.ThrowIfNull(bodyNode);
+
+            float[] parts = Floats(bodyNode.Properties.GetString(InertiaProperty), 9);
+
+            return parts.Length == 9 ? parts : null;
+        }
+
+        /// <summary>The field names an inertia tensor is written under.</summary>
+        public static IReadOnlyList<string> InertiaFields => Rows;
+
+        private static float[] Floats(string text, int wanted)
+        {
+            if (text.Length == 0)
+                return [];
+
+            string[] parts = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+            if (parts.Length != wanted)
+                return [];
+
+            var values = new float[wanted];
+
+            for (int i = 0; i < wanted; i++)
+            {
+                if (!float.TryParse(parts[i], NumberStyles.Float, CultureInfo.InvariantCulture, out values[i]))
+                    return [];
+            }
+
+            return values;
+        }
+
         /// <summary>Records a body's mass and layer on the node standing for it.</summary>
         public static void Write(FbxObject bodyNode, NifModel model, NifItem body)
         {
@@ -184,6 +258,21 @@ namespace NIFBX.Fbx
             }
 
             bodyNode.Properties.SetUserString(LayerProperty, FbxCollisionMaterial.LayerOf(model, body));
+
+            if (model.FindItem(body, @"Rigid Body Info\Center") is { } centre)
+            {
+                NifVector4 c = centre.Value.Get<NifVector4>();
+
+                bodyNode.Properties.SetUserString(
+                    CenterProperty, string.Join(' ', Number(c.X), Number(c.Y), Number(c.Z), Number(c.W)));
+            }
+
+            if (model.FindItem(body, @"Rigid Body Info\Inertia Tensor") is { } inertia)
+            {
+                bodyNode.Properties.SetUserString(InertiaProperty, string.Join(' ',
+                    Rows.Select(field => Number(
+                        model.FindItem(inertia, field)?.Value.ToFloat() ?? 0f))));
+            }
 
             // Only when there is something in it: 2,965 of 3,071 vanilla filters are
             // zero, so a scene gains a property per body that says something rather
