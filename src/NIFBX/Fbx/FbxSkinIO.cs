@@ -229,13 +229,25 @@ namespace NIFBX.Fbx
         }
 
         /// <summary>Records how the skin was sliced, beside the weights rather than instead.</summary>
+        /// <remarks>
+        /// On the mesh's *node*, not on its skin. A deformer's properties are the
+        /// deformer's own business and no DCC tool carries them: Blender rebuilds the
+        /// skin from its vertex groups and writes a deformer of its own, so anything
+        /// recorded there is gone. A draugr's body came back from Blender with one
+        /// body part where its file has three, and had done all along -- the
+        /// dismemberment, which is what lets armour hide the body under it, was lost
+        /// on every creature that made the trip.
+        ///
+        /// A node's properties do survive, which is where everything else that has to
+        /// cross a DCC tool already rides.
+        /// </remarks>
         private static void WritePartitionViews(FbxScene scene, FbxObject geometry, SkinData skin)
         {
             if (skin.Partitions.Count == 0)
                 return;
 
-            FbxObject? skinObject = scene.ChildrenOf(geometry.Id)
-                .FirstOrDefault(o => o.Class == "Deformer" && o.SubClass == "Skin");
+            FbxObject? skinObject = scene.ParentsOf(geometry.Id)
+                .FirstOrDefault(o => o.Class == "Model");
 
             if (skinObject is null)
                 return;
@@ -380,6 +392,29 @@ namespace NIFBX.Fbx
             {
                 WriteClusters(scene, skin, bones, meshTransform, part, covered, index, skinObject, problems);
                 return;
+            }
+
+            // The body slots, on the node as well as on the skin, and for the reason
+            // the partition views are there: they say which part of a body each
+            // partition is, a deformer's properties do not survive a DCC tool, and a
+            // partition nobody can name cannot come back. A draugr's body returned
+            // from Blender with one body part where its file has three.
+            if (scene.ParentsOf(geometry.Id).FirstOrDefault(o => o.Class == "Model") is { } holder
+                && skin.BodySlots.Count > 0)
+            {
+                holder.Properties.SetUserString(
+                    SlotCountProperty,
+                    skin.BodySlots.Count.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+                for (int i = 0; i < skin.BodySlots.Count; i++)
+                {
+                    (string slot, uint flags) = skin.BodySlots[i];
+
+                    holder.Properties.SetUserString($"{SlotPrefix}{i}", slot);
+                    holder.Properties.SetUserString(
+                        $"{SlotPrefix}{i}_flags",
+                        flags.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                }
             }
 
             // The class the shape had, when the scene came from a NIF at all.
@@ -579,21 +614,30 @@ namespace NIFBX.Fbx
                 SkeletonRoot = skinObject.Properties.GetString(SkeletonRootProperty)
             };
 
+            // The node carries these as well as the skin, because a DCC tool keeps a
+            // node's properties and drops a deformer's. Whichever says something is
+            // read; a scene that has been through Blender has only the node left.
+            FbxObject holder = scene.ParentsOf(geometry.Id)
+                .FirstOrDefault(o => o.Class == "Model") ?? skinObject;
+
+            FbxObject slotsOn =
+                skinObject.Properties.GetString(SlotCountProperty).Length > 0 ? skinObject : holder;
+
             if (int.TryParse(
-                    skinObject.Properties.GetString(SlotCountProperty),
+                    slotsOn.Properties.GetString(SlotCountProperty),
                     System.Globalization.NumberStyles.Integer,
                     System.Globalization.CultureInfo.InvariantCulture,
                     out int slots))
             {
                 for (int i = 0; i < slots; i++)
                 {
-                    string name = skinObject.Properties.GetString($"{SlotPrefix}{i}");
+                    string name = slotsOn.Properties.GetString($"{SlotPrefix}{i}");
 
                     if (name.Length == 0)
                         continue;
 
                     uint.TryParse(
-                        skinObject.Properties.GetString($"{SlotPrefix}{i}_flags"),
+                        slotsOn.Properties.GetString($"{SlotPrefix}{i}_flags"),
                         System.Globalization.NumberStyles.Integer,
                         System.Globalization.CultureInfo.InvariantCulture,
                         out uint flags);
@@ -654,7 +698,9 @@ namespace NIFBX.Fbx
             // rather than by repeating the deformer. Read after the loop above, which
             // has nothing to add for a single deformer, and preferred to it: a file
             // with both is one this wrote, and the views are what it meant.
-            ReadPartitionViews(skinObject, skin);
+            ReadPartitionViews(
+                skinObject.Properties.GetString(PartitionCountProperty).Length > 0 ? skinObject : holder,
+                skin);
 
             return skin.IsEmpty ? null : skin;
         }

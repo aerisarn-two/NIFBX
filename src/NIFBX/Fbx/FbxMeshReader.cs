@@ -195,6 +195,32 @@ namespace NIFBX.Fbx
                 : null;
         }
 
+        /// <summary>The per-face partition a geometry carries, where no layer says it.</summary>
+        private static int[]? CarriedFacePartitions(FbxObject geometry)
+        {
+            string stored = geometry.Properties.GetString(FbxMeshWriter.FacePartitionProperty);
+
+            if (stored.Length == 0)
+                return null;
+
+            string[] parts = stored.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+            var groups = new int[parts.Length];
+
+            for (int i = 0; i < parts.Length; i++)
+            {
+                if (!int.TryParse(
+                        parts[i],
+                        System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out groups[i]))
+                {
+                    return null;
+                }
+            }
+
+            return groups;
+        }
+
         public static MeshGeometry? Read(FbxObject geometry, Options? options = null)
         {
             options ??= new Options();
@@ -232,10 +258,21 @@ namespace NIFBX.Fbx
             var colors = LayerElement.Find(geometry, "LayerElementColor", "Colors");
 
             // Which partition draws each face, when the scene says the skin is split.
+            //
+            // The layer element first, which is FBX's own way of saying it, and the
+            // property when there is no layer. A DCC tool rebuilds a mesh from the data
+            // it understands and a polygon group is not among them, so the layer does
+            // not survive Blender and the property does -- byte for byte, on the
+            // geometry, where Blender keeps it as mesh data. Without the fallback a
+            // shape came back split by the bone palette instead of by the body parts it
+            // was authored with, and a draugr's body had one part where its file has
+            // three.
             var polygonGroups = geometry.Node.Nodes
                 .FirstOrDefault(n => n.Name == "LayerElementPolygonGroup")
                 ?.Nodes.FirstOrDefault(n => n.Name == "PolygonGroup")
                 ?.Properties.FirstOrDefault() as int[];
+
+            polygonGroups ??= CarriedFacePartitions(geometry);
 
             var mesh = new MeshGeometry();
             var seen = new Dictionary<VertexKey, ushort>();

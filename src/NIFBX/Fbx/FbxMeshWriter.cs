@@ -239,6 +239,16 @@ namespace NIFBX.Fbx
             {
                 AddPolygonGroupElement(geometry, mesh.TrianglePartitions);
                 layerElements.Add("LayerElementPolygonGroup");
+
+                // And again on the node, because the layer element does not survive a
+                // DCC tool. Blender rebuilds a mesh from its own data and writes the
+                // layers it knows; a polygon group is not one of them, so the face
+                // assignment was gone and the shape came back split by the bone
+                // palette instead of by the body parts it was authored with. A
+                // draugr's body has three parts and came back with one.
+                geometry.Properties.SetUserString(
+                    FacePartitionProperty,
+                    string.Join(' ', mesh.TrianglePartitions));
             }
 
             node.Nodes.Add(BuildLayer(layerElements));
@@ -271,6 +281,13 @@ namespace NIFBX.Fbx
         /// group is this face in" is what it means, so a skin partition needs no
         /// invented channel here either.
         /// </remarks>
+        /// <summary>Which partition draws each face, on the node rather than in a layer.</summary>
+        /// <remarks>
+        /// The layer element is the right place and FBX's own; this is the copy that
+        /// lives where a DCC tool will keep it. See the call site.
+        /// </remarks>
+        public const string FacePartitionProperty = "nif_face_partition";
+
         public static void AddPolygonGroupElement(FbxObject geometry, IReadOnlyList<int> perPolygon)
         {
             var groups = new int[perPolygon.Count];

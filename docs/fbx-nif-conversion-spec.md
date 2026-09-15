@@ -2999,10 +2999,19 @@ mass of a static. Typing them would be typing something the import overwrites (Â
 | `body_slot_<i>` | mesh geometry | The body part of partition *i*, from nif.xml's `BSDismemberBodyPartType` |
 | `body_slot_<i>_flags` | mesh geometry | That partition's editor flags |
 
-| `nif_skin_partition_count` | the shape's skin | How many partitions the skin was split into |
-| `nif_skin_part<i>_vertices` | the shape's skin | Which vertices partition *i* draws, as indices into the shape's array |
-| `nif_skin_part<i>_bones` | the shape's skin | Its share of the skin's bone list, as indices into that |
-| `nif_skin_part<i>_lod` | the shape's skin | The level it draws at, where above zero |
+| `nif_skin_partition_count` | the shape's **node** | How many partitions the skin was split into |
+| `nif_skin_part<i>_vertices` | the shape's **node** | Which vertices partition *i* draws, as indices into the shape's array |
+| `nif_skin_part<i>_bones` | the shape's **node** | Its share of the skin's bone list, as indices into that |
+| `nif_skin_part<i>_lod` | the shape's **node** | The level it draws at, where above zero |
+| `nif_face_partition` | mesh geometry | Which partition draws each face, where `LayerElementPolygonGroup` has not survived |
+
+**On the node, not on the skin.** A deformer's properties are the deformer's own
+business and no DCC tool carries them: Blender rebuilds a skin from its vertex groups
+and writes a deformer of its own. The body slots were on the skin, so a draugr's body
+came back from Blender with one body part where its file has three â€” and dismemberment
+is what lets armour hide the body under it. They are on the node now as well, and so are
+the views. The per-face channel is the same story one level down: the layer element does
+not survive and the property does, on the geometry, where Blender keeps it as mesh data.
 
 Bones are ordinary FBX skin clusters and need no properties: the deformer names them.
 The split does need them, and that is the correction above: saying it with a deformer

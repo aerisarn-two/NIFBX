@@ -120,6 +120,32 @@ namespace NIFBX.Tests
             }
         }
 
+        /// <summary>
+        /// The views and the body slots ride where a DCC tool keeps them.
+        /// </summary>
+        /// <remarks>
+        /// Not a style point. A deformer's properties are the deformer's own business
+        /// and Blender writes a deformer of its own, so anything recorded there is
+        /// gone: a draugr's body came back with one body part where its file has three,
+        /// and had done all along. The dismemberment is what lets armour hide the body
+        /// under it, so losing it is not cosmetic.
+        ///
+        /// A node's properties survive. What is asserted is where each thing is, since
+        /// that is the whole of the difference, and the round trip through Blender is
+        /// what proved it rather than anything in the format's own terms.
+        /// </remarks>
+        [Fact]
+        public void TheSlicesRideOnTheNodeWhereADccToolKeepsThem()
+        {
+            (FbxScene scene, FbxObject geometry) = Staged();
+
+            FbxObject node = Assert.Single(
+                scene.ParentsOf(geometry.Id), o => o.Class == "Model");
+
+            Assert.Equal("3", node.Properties.GetString(FbxSkinIO.PartitionCountProperty));
+            Assert.NotEqual(string.Empty, node.Properties.GetString($"{FbxSkinIO.PartitionViewPrefix}0_vertices"));
+        }
+
         /// <summary>The seam vertex is in two slices and weighted once.</summary>
         [Fact]
         public void ASeamVertexIsInBothSlicesAndWeightedOnce()
