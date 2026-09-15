@@ -1,5 +1,6 @@
 using NIFSharp;
 using NIFBX.Conversion;
+using NIFBX.Fbx;
 using NIFBX.Nif;
 using Xunit;
 

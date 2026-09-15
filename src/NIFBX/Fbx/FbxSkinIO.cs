@@ -76,6 +76,30 @@ namespace NIFBX.Fbx
         /// </remarks>
         public const string PartitionLodProperty = "nif_partition_lod";
 
+        /// <summary>How many partitions the shape's skin was split into.</summary>
+        /// <remarks>
+        /// The partitions used to be one skin deformer each. That is what ck-cmd does
+        /// -- it counts a mesh's deformers to get the partition count -- and it is
+        /// wrong by FBX's own reading: a geometry with three skin deformers is deformed
+        /// three times. Blender is right to do so, and a draugr's body, whose skin has
+        /// three partitions, arrived with three armature modifiers and was visibly
+        /// destroyed: 1.4 units wide and its shoulders below the armour it wears.
+        ///
+        /// A partition is a *view* -- which vertices a slice draws, and with which
+        /// bones -- over one shared set of weights. It is not a second deformation, so
+        /// it is not a second deformer. The weights go out once, on one skin, and the
+        /// views ride beside them as these properties.
+        /// </remarks>
+        public const string PartitionCountProperty = "nif_skin_partition_count";
+
+        /// <summary>Prefix on one partition's view, before its index.</summary>
+        /// <remarks>
+        /// <c>nif_skin_part0_vertices</c> is the vertices that partition draws, as
+        /// indices into the shape's own array; <c>_bones</c> is its share of the skin's
+        /// bone list, as indices into that; <c>_lod</c> is the level it draws at.
+        /// </remarks>
+        public const string PartitionViewPrefix = "nif_skin_part";
+
         /// <summary>Which entry of the skin's bone list a cluster is.</summary>
         /// <remarks>
         /// A skin's bone list may name one bone several times. 72 of the 26,940 skins
@@ -182,34 +206,65 @@ namespace NIFBX.Fbx
             if (scene.ParentsOf(geometry.Id).FirstOrDefault(o => o.Class == "Model") is { } holder)
                 meshTransform = FbxGlobalTransform.Of(scene, holder);
 
-            // One skin deformer per partition, which is how FBX says this and how
-            // ck-cmd says it too: it counts a mesh's skin deformers to get the
-            // partition count (`FBXWrangler.cpp:2826`) and creates one per partition
-            // block on the way out (`:1046`). A partition is a set of bones and the
-            // vertices they draw, and a deformer with its clusters is exactly that, so
-            // nothing has to be invented to carry it.
+            // One skin deformer, holding every weight exactly once.
             //
-            // A shape with no partitions gets a single deformer holding everything,
-            // which is what every unpartitioned skin already was.
-            int count = Math.Max(1, skin.Partitions.Count);
+            // It used to be one per partition, which is what ck-cmd does -- it counts a
+            // mesh's deformers to get the partition count (`FBXWrangler.cpp:2826`) and
+            // writes one per partition block (`:1046`). FBX does not read them that
+            // way. A geometry with three skin deformers is deformed three times, and
+            // Blender is right to do it: a draugr's body has three partitions and
+            // arrived with three armature modifiers, 1.4 units wide with its shoulders
+            // below the armour it wears.
+            //
+            // A partition is a view over one shared set of weights -- which vertices a
+            // slice draws, and with which bones -- and the file says so itself: a
+            // vertex on the seam between two body parts is in both lists. A view is not
+            // a deformation, so it does not get a deformer. The weights go out once and
+            // the views ride beside them, in `PartitionViewPrefix`.
+            AddOnePartition(scene, geometry, skin, bones, meshTransform, 0, 1, [], problems);
 
-            // Every vertex some partition names. A vertex map lists what its partition
-            // *draws*, and a weighted vertex no triangle of any partition reaches is in
-            // none of them -- 62 of the 322 in the Ebony Mail's first-person cuirass,
-            // carrying 136 weights. Restricting each cluster to its own map therefore
-            // dropped those weights entirely and the mesh came away from its bones.
-            // They go to the first deformer, so that everything the skin holds is
-            // written exactly once.
-            var mapped = new HashSet<ushort>();
-
-            foreach (SkinPartitionInfo part in skin.Partitions)
-                mapped.UnionWith(part.Vertices);
-
-            for (int p = 0; p < count; p++)
-                AddOnePartition(scene, geometry, skin, bones, meshTransform, p, count, mapped, problems);
+            WritePartitionViews(scene, geometry, skin);
 
             return problems;
         }
+
+        /// <summary>Records how the skin was sliced, beside the weights rather than instead.</summary>
+        private static void WritePartitionViews(FbxScene scene, FbxObject geometry, SkinData skin)
+        {
+            if (skin.Partitions.Count == 0)
+                return;
+
+            FbxObject? skinObject = scene.ChildrenOf(geometry.Id)
+                .FirstOrDefault(o => o.Class == "Deformer" && o.SubClass == "Skin");
+
+            if (skinObject is null)
+                return;
+
+            skinObject.Properties.SetUserString(
+                PartitionCountProperty,
+                skin.Partitions.Count.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+            for (int i = 0; i < skin.Partitions.Count; i++)
+            {
+                SkinPartitionInfo part = skin.Partitions[i];
+                string prefix = $"{PartitionViewPrefix}{i.ToString(System.Globalization.CultureInfo.InvariantCulture)}_";
+
+                skinObject.Properties.SetUserString(prefix + "vertices", Numbers(part.Vertices));
+                skinObject.Properties.SetUserString(prefix + "bones", Numbers(part.Bones));
+
+                if (part.LodLevel > 0)
+                {
+                    skinObject.Properties.SetUserString(
+                        prefix + "lod",
+                        part.LodLevel.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                }
+            }
+        }
+
+        /// <summary>A list of indices, space separated.</summary>
+        private static string Numbers<T>(IEnumerable<T> values) =>
+            string.Join(' ', values.Select(v => System.Convert.ToInt32(
+                v, System.Globalization.CultureInfo.InvariantCulture)));
 
         /// <summary>
         /// Says, in the file, that a node is a bone.
@@ -595,7 +650,80 @@ namespace NIFBX.Fbx
                     skin.Partitions.Add(info);
             }
 
+            // A scene written the other way says how it was split beside the weights
+            // rather than by repeating the deformer. Read after the loop above, which
+            // has nothing to add for a single deformer, and preferred to it: a file
+            // with both is one this wrote, and the views are what it meant.
+            ReadPartitionViews(skinObject, skin);
+
             return skin.IsEmpty ? null : skin;
+        }
+
+        /// <summary>Reads back how the skin was sliced, where the scene says beside the weights.</summary>
+        private static void ReadPartitionViews(FbxObject skinObject, SkinData skin)
+        {
+            if (!int.TryParse(
+                    skinObject.Properties.GetString(PartitionCountProperty),
+                    System.Globalization.NumberStyles.Integer,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out int count)
+                || count <= 0)
+            {
+                return;
+            }
+
+            var views = new List<SkinPartitionInfo>(count);
+
+            for (int i = 0; i < count; i++)
+            {
+                string prefix = $"{PartitionViewPrefix}{i.ToString(System.Globalization.CultureInfo.InvariantCulture)}_";
+
+                var info = new SkinPartitionInfo
+                {
+                    LodLevel = uint.TryParse(
+                        skinObject.Properties.GetString(prefix + "lod"),
+                        System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out uint level)
+                        ? level
+                        : 0,
+                };
+
+                foreach (int vertex in Indices(skinObject.Properties.GetString(prefix + "vertices")))
+                    info.Vertices.Add((ushort)vertex);
+
+                info.Bones.AddRange(Indices(skinObject.Properties.GetString(prefix + "bones")));
+
+                // A partition that draws nothing is not one the file had. Half a view
+                // is worse than none: the slice would come back empty and the vertices
+                // it drew would be drawn by nobody.
+                if (info.Vertices.Count == 0)
+                    return;
+
+                views.Add(info);
+            }
+
+            skin.Partitions.Clear();
+            skin.Partitions.AddRange(views);
+        }
+
+        /// <summary>A space separated list of indices.</summary>
+        private static IEnumerable<int> Indices(string text)
+        {
+            if (text.Length == 0)
+                yield break;
+
+            foreach (string part in text.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (int.TryParse(
+                        part,
+                        System.Globalization.NumberStyles.Integer,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        out int value))
+                {
+                    yield return value;
+                }
+            }
         }
 
         /// <summary>

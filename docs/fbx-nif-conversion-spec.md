@@ -1005,14 +1005,23 @@ partition holds — travels in FBX's own structures, with nothing invented:
 
 | What | FBX structure |
 | --- | --- |
-| Which bones a partition draws with, and their weights | One `Deformer`/`Skin` per partition, with a `Deformer`/`Cluster` per bone under it |
+| The bones and their weights | One `Deformer`/`Skin` for the whole shape, with a `Deformer`/`Cluster` per bone |
+| Which vertices and bones each partition draws with | `nif_skin_partition_count` and `nif_skin_part<i>_*` on that skin |
 | Which triangles a partition draws | `LayerElementPolygonGroup`, `ByPolygon` |
 
-The deformer half is ck-cmd's own representation: it creates one `FbxSkin` per partition
-block on the way out (`FBXWrangler.cpp:1046`) and reads the partition count straight off
-the deformer count on the way back (`:2826`). A mesh may carry several skin deformers,
-and a partition is a set of bones with the vertices they move, which is what a deformer
-and its clusters are.
+**One deformer, not one per partition.** A deformer per partition is ck-cmd's
+representation — it creates one `FbxSkin` per partition block on the way out
+(`FBXWrangler.cpp:1046`) and reads the partition count straight off the deformer count
+on the way back (`:2826`) — and it is wrong by FBX's own reading. A geometry with three
+skin deformers is deformed three times. Blender does exactly that: a draugr's body, whose
+skin has three partitions, arrives with three armature modifiers and is destroyed. Posed,
+it stands 1.4 units wide with its shoulders below the armour it wears. Every weight is
+present and every one is applied three times.
+
+A partition is a *view* over one shared set of weights, and this document says so a few
+lines below: a vertex on the seam between two body parts is in both partitions' lists. A
+view is not a second deformation, so it does not get a second deformer. The weights are
+written once and the views ride beside them as properties.
 
 The polygon group is the half ck-cmd does not have. It works the triangles out from which
 partition holds their vertices (`:2845`), and that has **no answer for a triangle on a
@@ -2990,14 +2999,20 @@ mass of a static. Typing them would be typing something the import overwrites (�
 | `body_slot_<i>` | mesh geometry | The body part of partition *i*, from nif.xml's `BSDismemberBodyPartType` |
 | `body_slot_<i>_flags` | mesh geometry | That partition's editor flags |
 
-Bones are ordinary FBX skin clusters and need no properties: the deformer names them.
-Nor does the split need any — a skin deformer per partition and a polygon group per face
-say it in FBX's own terms (§5.2.3A). Body slots are the one thing neither can say, which
-is why they are here: a character's skin needs them and a door hinge does not.
+| `nif_skin_partition_count` | the shape's skin | How many partitions the skin was split into |
+| `nif_skin_part<i>_vertices` | the shape's skin | Which vertices partition *i* draws, as indices into the shape's array |
+| `nif_skin_part<i>_bones` | the shape's skin | Its share of the skin's bone list, as indices into that |
+| `nif_skin_part<i>_lod` | the shape's skin | The level it draws at, where above zero |
 
-A mesh with one skin deformer is an unsplit skin, which is what every unpartitioned skin
-has always looked like. Several deformers mean several partitions, in the order the
-`nif_skin_partition` property gives.
+Bones are ordinary FBX skin clusters and need no properties: the deformer names them.
+The split does need them, and that is the correction above: saying it with a deformer
+each says something FBX reads as three deformations. Body slots are what neither a
+deformer nor a polygon group can say, which is why they are here too: a character's skin
+needs them and a door hinge does not.
+
+A shape with no `nif_skin_partition_count` is an unsplit skin. A file written before this
+says it the old way, with a deformer per partition in `nif_skin_partition` order, and is
+still read that way — the properties are preferred where both are present.
 
 ### 5D.4 Level of detail
 
