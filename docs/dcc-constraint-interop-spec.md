@@ -201,10 +201,18 @@ out. This is the only design in which the link is a real object reference *insid
 application — a Blender pointer, a Maya connection, a Max node reference — because none
 of those can be serialised into FBX by any route.
 
-It also retires the name-length problem for good. Once a script has built the native
-constraint, the link is a reference; renaming is safe, and on export the script
-regenerates both the node name and `constraint_body_a`/`_b` from the references. The
-63-character truncation measured in `hkx-constraint-spec.md` §4.6 costs nothing.
+It also retires the name-length problem, though not quite for good. Once a script has
+built the native constraint the link is a reference, renaming is safe, and on export the
+script regenerates `constraint_body_a`/`_b` from that reference — so the truncation
+measured in `hkx-constraint-spec.md` §4.6 costs nothing *that matters*.
+
+What it still costs is the node name itself. A name holds both body names and a suffix,
+which on a draugr's forearm-to-hand joint is 85 characters against Blender's 63, and
+Blender does not refuse a longer name — it stores a truncated one with a hash on the
+end. So the name is regenerated only when it fits, and otherwise cut to something that
+keeps `_con_` and says what the node is. Nothing reads it for the reference; ck-cmd
+reads it to recognise an attachment point at all, which is why the separator is what
+survives the cut.
 
 ### 5.1 What each application has to build into
 
@@ -357,10 +365,20 @@ import — a hash of the values written, stored as a property — to tell the tw
 Without this, every round trip degrades the file by the width of §5.3's approximation
 even when nobody touched anything.
 
-**R3. Names are regenerated from references, never trusted.** On export the node name
-and `constraint_body_a`/`_b` are rebuilt from the native constraint's object references.
+**R3. Names are regenerated from references, never trusted.** On export
+`constraint_body_a`/`_b` are rebuilt from the native constraint's object references, and
+the node name too where the host can hold it — see §5 for what to write when it cannot.
 On import they are read in the order `constraint_body_a`/`_b` first, node name second,
 parent third.
+
+**R3a. A body has two names and they are not interchangeable.** A creature exported
+with its skeleton.hkx has been through a bridge that rewrites `constraint_body_a`/`_b`
+into the *ragdoll's* vocabulary — `Ragdoll_NPC L Hand [LHnd]` — because that is what a
+Havok reader resolves them against, while the node names stay in the *mesh's* —
+`NPC L Hand [LHnd]_rb`. The body carries the translation under `hkb_ragdoll_bone`.
+Rebuilding a property from a node name, or the reverse, moves a joint between the two
+vocabularies silently and the reader on the far side finds neither body. A creature
+exported without its skeleton has one vocabulary and the distinction costs nothing.
 
 **R4. Both frames survive.** The `_frame_a` child node is not a bone, not a body, and
 not a joint. It carries `constraint_frame = "A"` and must be recreated on export at the
