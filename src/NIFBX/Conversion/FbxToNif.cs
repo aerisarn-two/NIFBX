@@ -193,8 +193,34 @@ namespace NIFBX.Conversion
 
             NifItem root = _model.InsertBlock(rootType);
 
-            // Named after the file rather than after any node in the scene (§5.2).
-            _model.SetString(root, "Name", _options.RootName);
+            // Named after the file, unless the scene knows better.
+            //
+            // §5.2 says the root takes the FBX file stem and not the node's name, and
+            // for a scene somebody authored that is the only answer there is. For one
+            // that came out of a NIF it is the wrong answer: the name is right there on
+            // the node, and a NIF's root is not reliably named after its file. Measured
+            // over 57 of the game's actor meshes, the root block's name is the file's
+            // name 20 times, its stem 6, and something else entirely 31 -- `Object09`,
+            // `HighlandCowBody`, `BODY`, `haghead`. Taking the stem renamed the root of
+            // 37 of those 57 on a round trip.
+            //
+            // A node says it came from a NIF by carrying its block class, which is the
+            // same thing the class above is read from, so the two answers come from the
+            // same evidence.
+            string declared = rootModel?.Properties.GetString(FbxNodeType.Property) ?? string.Empty;
+            string given = rootModel is null ? string.Empty : NameEncoding.Unsanitize(rootModel.Name);
+
+            string rootName =
+                declared.Length == 0 ? _options.RootName
+                // A block with no name of its own is written out under its class, so a
+                // root whose node is named exactly its class had none -- and one is
+                // what `TestNifFile_RootNonZero` has. The one name this cannot tell
+                // apart is a root genuinely called `BSFadeNode`, which the export
+                // cannot express either.
+                : given == declared ? string.Empty
+                : given;
+
+            _model.SetString(root, "Name", rootName);
 
             // What its class usually carries. Overridden below when the scene brought
             // real flags with it; set here because the branch that reads them only runs
@@ -218,7 +244,7 @@ namespace NIFBX.Conversion
                 // And its controllers need ordering like any other node's.
                 _animatedControllerHosts.Add((rootModel, root));
             }
-            _nodesByName[_options.RootName] = root;
+            _nodesByName[rootName] = root;
             _sceneRoot = root;
 
             var rootModels = sceneRoots;

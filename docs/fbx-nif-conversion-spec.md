@@ -785,7 +785,21 @@ Before anything else (L5307–5310):
 ### 5.2 Root and hierarchy
 
 The first visited node becomes the conversion root: a `BSFadeNode`, or a plain
-`NiNode` when exporting a skin. It is **named after the FBX file stem**, not the node.
+`NiNode` when exporting a skin. It is **named after the node when the node came out of
+a NIF, and after the FBX file stem otherwise.**
+
+The file stem was the rule for both, and it is only right for a scene somebody
+authored, where nothing else decides. A NIF's root is not reliably named after its
+file: measured over 57 of the game's actor meshes the root block's name is the file's
+name 20 times, its stem 6, and something else entirely 31 — `Object09`,
+`HighlandCowBody`, `BODY`, `haghead` — so the stem renamed the root of 37 of the 57 on
+a round trip.
+
+A node says it came out of a NIF by carrying its block class, which is the same
+evidence the root's *class* is already read from. A block with no name of its own is
+written out under its class (§5.2.5), so a root whose node is named exactly its class
+had no name and gets none back. The one case that cannot be told apart is a root
+genuinely called `BSFadeNode`, which the export cannot express either.
 
 If the FBX root carries a non-identity transform, a child `NiNode` named
 `rootTransformProxy` is inserted to hold it, and the transform goes on the root.
