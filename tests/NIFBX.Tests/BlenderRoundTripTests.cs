@@ -28,6 +28,12 @@ namespace NIFBX.Tests
     /// the field sweep was when it started at 400 of 600, and the number is here to
     /// fall rather than to be passed.
     ///
+    /// It has started to. A visibility track was the first thing moved off the stack
+    /// and onto the node it drives (<see cref="Fbx.FbxVisibilityCodec"/>), because
+    /// Blender drops the `Visibility` curve as well as the stack and a draugr was
+    /// coming back with nothing to hide its weapon. Anything else on the stack can
+    /// follow the same way; each one is its own measurement.
+    ///
     /// Nothing here runs without Blender. It skips instead, which is what a machine
     /// with no copy installed should see.
     /// </remarks>
