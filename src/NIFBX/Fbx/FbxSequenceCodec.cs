@@ -80,6 +80,14 @@ namespace NIFBX.Fbx
             Set(model, prefix + "proptype", property.PropertyType);
             Set(model, prefix + "interp", property.InterpolatorType);
 
+            // How many curves, because that is what says a track is a colour. Read
+            // back as one, a colour track is a float track, and the writer gives the
+            // controller a float blend interpolator where the manager needs a point
+            // one: a spriggan's and a vampire lord's effects came back with their two
+            // `NiBlendPoint3Interpolator` turned into `NiBlendFloatInterpolator`.
+            Set(model, prefix + "components",
+                property.Curves.Length.ToString(CultureInfo.InvariantCulture));
+
             if (property.DataId >= 0)
                 Set(model, prefix + "datid", property.DataId.ToString(CultureInfo.InvariantCulture));
 
@@ -121,11 +129,13 @@ namespace NIFBX.Fbx
                 if (fields.Count == 0)
                     continue;
 
+                int components = (int)Number(model, prefix + "components", 1);
+
                 carried.Add(new Carried(
                     sequence,
                     Number(model, prefix + "cycle"),
                     model.Properties.GetString(prefix + "accum"),
-                    new AnimProperty
+                    new AnimProperty(components < 1 ? 1 : components)
                     {
                         Name = model.Properties.GetString(prefix + "name"),
                         InterpolatorType = model.Properties.GetString(prefix + "interp"),
