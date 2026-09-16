@@ -633,11 +633,35 @@ namespace NIFBX.Fbx
             }
         }
 
+        /// <summary>The sequence a stack stands for, seen through a tool's renaming.</summary>
+        /// <remarks>
+        /// A controller hung on a node rather than named by a sequence has no FBX
+        /// equivalent, so it travels in an invented stack called
+        /// <see cref="NifAnimAccess.DefaultSequenceName"/>, and the writer turns that
+        /// name back into the bare controllers it stands for.
+        ///
+        /// Blender names a stack after what wrote it -- object, action, slot, joined
+        /// by bars -- so `Take 001` comes back as
+        /// `skeleton.nif|skeleton.nif|Take 001|Default` and is not that name any
+        /// more. The file then gains everything the writer says it should not: a
+        /// controller manager, a sequence, an object palette and a text key block it
+        /// never had, with the controllers left attached to nothing. Measured across
+        /// the creature sweep, 17 files of 91.
+        ///
+        /// Only this one name is looked for. A real sequence's name is its own and is
+        /// left as it is, and a creature's clips are matched by their manifest rather
+        /// than by their stack's name, for this same reason.
+        /// </remarks>
+        private static string SequenceNameOf(string name) =>
+            name.Split('|').Any(part => part == NifAnimAccess.DefaultSequenceName)
+                ? NifAnimAccess.DefaultSequenceName
+                : name;
+
         private static AnimSequence? ReadStack(FbxScene scene, FbxObject stack)
         {
             var sequence = new AnimSequence
             {
-                Name = stack.Name,
+                Name = SequenceNameOf(stack.Name),
                 Start = TimeProperty(stack, "LocalStart"),
                 Stop = TimeProperty(stack, "LocalStop"),
                 CycleType = uint.TryParse(
