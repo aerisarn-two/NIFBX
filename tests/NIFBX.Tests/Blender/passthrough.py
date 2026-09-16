@@ -12,11 +12,11 @@
 # own limbs.
 #
 # That orientation is what makes the rig posable and it rewrites the rest pose to
-# get it, which Blender's exporter cannot undo: 83 of a draugr's 93 nodes come
-# back turned. SKEX_ADDON points at SKDcc's `skyrim_export`, whose `rest` module
-# writes the imported pose down here and answers for every bone still matching it
-# on the way out. Without it set, the pass measures what Blender alone does,
-# which is the number that says why the module exists.
+# get it, which Blender's exporter cannot undo: 82 of a draugr's 93 nodes come
+# back turned. SKEX_ADDON points at SKDcc's `skyrim_export`, which reads the file
+# a second time without the aiming to learn the pose it states, and puts that
+# pose back for the duration of the export. Without it set, the pass measures
+# what Blender alone does, which is the number that says why the module exists.
 #
 # `bake_anim_use_all_actions` is the expensive one, and it is on deliberately. A
 # NIF's sequences each become an action, and only one of them can be the active
@@ -46,23 +46,22 @@ rigging = os.environ.get("SKEX_ADDON", "")
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 
-bpy.ops.import_scene.fbx(
-    filepath=source,
-    automatic_bone_orientation=True,
-    use_custom_props=True,
-    use_anim=True,
-    ignore_leaf_bones=False)
+if not rigging:
+    bpy.ops.import_scene.fbx(
+        filepath=source,
+        automatic_bone_orientation=True,
+        use_custom_props=True,
+        use_anim=True,
+        ignore_leaf_bones=False)
 
 rest = None
 
 if rigging:
     sys.path.insert(0, rigging)
 
-    from skyrim_export import rest
+    from skyrim_export import load, rest
 
-    for obj in bpy.data.objects:
-        if obj.type == "ARMATURE":
-            rest.record(obj)
+    load.read(source)
 
 if addon:
     sys.path.insert(0, addon)
@@ -73,7 +72,7 @@ if addon:
     bpy.ops.skhk.build_constraints()
     bpy.ops.skhk.bake()
 
-stating = rest.stated(bpy.context.scene) if rest else None
+stating = rest.restored(bpy.context.scene) if rest else None
 
 if stating:
     stating.__enter__()
