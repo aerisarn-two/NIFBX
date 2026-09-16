@@ -1310,7 +1310,16 @@ namespace NIFBX.Conversion
 
             foreach (FbxObject child in candidates)
             {
-                string name = NameEncoding.Unsanitize(child.Name);
+                // Read through a DCC tool's de-duplication. A list shape holds its
+                // members as siblings with one name between them, and Blender keeps
+                // names unique by appending `.001`, `.002` -- so a deer's character
+                // controller, three capsules called
+                // `Character_s_Controller_sp_list_capsule`, came back as that,
+                // `…capsule.001` and `…capsule.002`. Every shape here is chosen by
+                // what its name ends in, and two of the three no longer ended in
+                // `_capsule`: 27 capsules went in and 25 came out, and the same would
+                // have happened to any box, sphere or convex hull that shares a name.
+                string name = WithoutCopyMark(NameEncoding.Unsanitize(child.Name));
 
                 // A container holds a tree, and the tree is the shape. ck-cmd
                 // rebuilds these from the Havok body it fits to the geometry; there is
@@ -4208,6 +4217,20 @@ namespace NIFBX.Conversion
         }
 
         // --- helpers ----------------------------------------------------------
+
+        /// <summary>A name without the `.001` a DCC tool appends to keep names unique.</summary>
+        /// <remarks>
+        /// Only a dot followed by nothing but digits, at the very end, which is the
+        /// shape Blender writes and a shape name here never has of its own.
+        /// </remarks>
+        private static string WithoutCopyMark(string name)
+        {
+            int dot = name.LastIndexOf('.');
+
+            return dot > 0 && dot < name.Length - 1 && name[(dot + 1)..].All(char.IsAsciiDigit)
+                ? name[..dot]
+                : name;
+        }
 
         /// <summary>True when a model carries geometry, directly or via a holder.</summary>
         private bool HasGeometry(FbxObject model) =>
