@@ -192,6 +192,11 @@ namespace NIFBX.Fbx
                     {
                         AddPropertyChannel(scene, layer, model, property);
 
+                        // And on the node, for every property whose curve a DCC tool
+                        // drops -- which is every one it does not recognise. See
+                        // `FbxSequenceCodec`.
+                        FbxSequenceCodec.Write(model, sequence, property);
+
                         // And again on the node, for the one property whose curve a
                         // DCC tool is likely to drop on the floor. See
                         // `FbxVisibilityCodec`: Blender reads no Visibility curve and

@@ -206,6 +206,18 @@ namespace NIFBX.Conversion
         public IReadOnlyDictionary<string, string>? CarriedInterpolator { get; init; }
 
         /// <summary>
+        /// The same thing for a track a curve *can* express, kept as a fallback.
+        /// </summary>
+        /// <remarks>
+        /// A curve is the carrier and this is not written into the NIF. It rides on
+        /// the node so that a DCC tool which drops the curve -- Blender drops
+        /// animation on any custom property it does not understand, which is every
+        /// shader property -- has left something to rebuild the track from. See
+        /// <see cref="Fbx.FbxSequenceCodec"/>.
+        /// </remarks>
+        public IReadOnlyDictionary<string, string>? MirroredInterpolator { get; init; }
+
+        /// <summary>
         /// Which data block this track's keys came from, when it came from a NIF.
         /// </summary>
         /// <remarks>

@@ -28,6 +28,7 @@ namespace NIFBX.Fbx
             }
 
             ReadCarriedVisibility(scene, sequences);
+            ReadCarriedSequences(scene, sequences);
 
             return sequences;
         }
@@ -50,6 +51,61 @@ namespace NIFBX.Fbx
         /// write a stack about. Recreating it by name puts the controllers back where
         /// they were, attached to their targets.
         /// </remarks>
+        /// <summary>
+        /// Puts back the sequenced tracks whose curves did not survive the scene.
+        /// </summary>
+        /// <remarks>
+        /// The mirror of <see cref="ReadCarriedVisibility"/> and the same shape: the
+        /// curve is the carrier and is read first, and this answers only for a track
+        /// whose curve has gone. Blender drops animation on any property it does not
+        /// understand, which is every shader property a NIF animates, and writes
+        /// stacks of its own so the metadata goes too -- a dragon came back without
+        /// a single one of its float controllers.
+        /// </remarks>
+        private static void ReadCarriedSequences(FbxScene scene, List<AnimSequence> sequences)
+        {
+            foreach (FbxObject model in scene.OfClass("Model"))
+            {
+                foreach (FbxSequenceCodec.Carried carried in FbxSequenceCodec.Read(model))
+                {
+                    AnimSequence? sequence = sequences.FirstOrDefault(
+                        s => string.Equals(s.Name, carried.Sequence, StringComparison.Ordinal));
+
+                    if (sequence is null)
+                    {
+                        sequence = new AnimSequence
+                        {
+                            Name = carried.Sequence,
+                            CycleType = carried.CycleType,
+                            AccumRootName = carried.AccumRoot
+                        };
+
+                        sequences.Add(sequence);
+                    }
+
+                    AnimTrack? track = sequence.Tracks.FirstOrDefault(t => t.BindId == model.Id);
+
+                    if (track is null)
+                    {
+                        track = new AnimTrack
+                        {
+                            NodeName = NameEncoding.Unsanitize(model.Name),
+                            BindId = model.Id,
+                        };
+
+                        sequence.Tracks.Add(track);
+                    }
+
+                    // The curve made it, so the scene already says this and saying it
+                    // twice would write the controller twice.
+                    if (track.Properties.Any(p => p.Name == carried.Property.Name))
+                        continue;
+
+                    track.Properties.Add(carried.Property);
+                }
+            }
+        }
+
         private static void ReadCarriedVisibility(FbxScene scene, List<AnimSequence> sequences)
         {
             foreach (FbxObject model in scene.OfClass("Model"))

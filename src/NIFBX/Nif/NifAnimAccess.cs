@@ -625,6 +625,10 @@ namespace NIFBX.Nif
 
             var property = new AnimProperty(colour ? 3 : 1)
             {
+                // Kept beside the curve, not instead of it: a DCC tool that drops
+                // animation on a property it does not understand leaves the curve
+                // with nothing behind it. See `FbxSequenceCodec`.
+                MirroredInterpolator = FbxInterpolatorCodec.Capture(model, interpolator),
                 Name = AnimProperty.ToPropertyName(
                     model.GetString(controlled, "Controller Type"),
                     model.GetString(controlled, "Controller ID"),
