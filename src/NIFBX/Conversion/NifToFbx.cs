@@ -2103,6 +2103,26 @@ namespace NIFBX.Conversion
                 return at;
             }
 
+            // The rest pose of each chain, gathered on the way past and written on the
+            // node the chain hangs from -- which is the one Blender spends on the
+            // armature object, and the only node whose custom properties it keeps.
+            //
+            // Where each bone stands, not how it stands relative to the bone above:
+            // Blender's edit bones are each absolute, so turning one there leaves its
+            // children where they were, and a parent-relative pose handed back would
+            // swing them round with it instead.
+            var poses = new Dictionary<FbxObject, List<(string, NifTransform)>>();
+
+            NifItem TopOf(NifItem bone)
+            {
+                NifItem at = bone;
+
+                while (parent.TryGetValue(at, out NifItem? above) && bones.Contains(above))
+                    at = above;
+
+                return at;
+            }
+
             foreach (NifItem block in bones)
             {
                 if (!_built.TryGetValue(block, out FbxObject? model) || model.Class != "Model")
@@ -2117,7 +2137,18 @@ namespace NIFBX.Conversion
                 double size = reach > 0d ? Math.Max(0.5d, reach * 0.1d) : 1d;
 
                 FbxSkinIO.MarkAsLimb(scene, model, chainTop, size);
+
+                if (_built.TryGetValue(TopOf(block), out FbxObject? top) && top.Class == "Model")
+                {
+                    if (!poses.TryGetValue(top, out List<(string, NifTransform)>? chain))
+                        poses[top] = chain = [];
+
+                    chain.Add((model.Name, WorldOf(block)));
+                }
             }
+
+            foreach ((FbxObject top, List<(string, NifTransform)> chain) in poses)
+                top.Properties.SetUserString(FbxBoneRest.ReferenceProperty, FbxBoneRest.Table(chain));
         }
 
         private static double Distance(NifVector3 a, NifVector3 b)

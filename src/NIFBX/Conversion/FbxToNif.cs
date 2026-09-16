@@ -4213,7 +4213,71 @@ namespace NIFBX.Conversion
         private bool HasGeometry(FbxObject model) =>
             _scene.ChildrenOf(model.Id).Any(o => o.Class == "Geometry");
 
+        private Dictionary<string, NifTransform>? _boneRest;
+        private readonly Dictionary<long, NifTransform> _resolved = [];
+        private readonly Dictionary<long, NifTransform> _sceneWorld = [];
+
+        /// <summary>The model a node hangs from, or null at the top of the scene.</summary>
+        private FbxObject? Above(FbxObject model) =>
+            _scene.ParentsOf(model.Id).FirstOrDefault(o => o.Class == "Model");
+
+        /// <summary>A stated world rest pose, expressed against where its parent ended up.</summary>
+        /// <remarks>
+        /// The table states where each bone stands, because that is what survives a
+        /// bone being turned; a NIF stores how it stands relative to the bone above,
+        /// so the parent has to be resolved first. A bone under one somebody moved
+        /// therefore keeps its place in the world and does not follow -- which is what
+        /// the DCC tool's own edit bones did, and so is what the person saw.
+        /// </remarks>
+        private NifTransform Relative(NifTransform world, FbxObject model)
+        {
+            if (Above(model) is not { } above)
+                return world;
+
+            if (!System.Numerics.Matrix4x4.Invert(ResolvedWorld(above).ToMatrix(),
+                                                 out System.Numerics.Matrix4x4 inverse))
+            {
+                return world;
+            }
+
+            return NifTransform.FromMatrix(world.ToMatrix() * inverse);
+        }
+
+        /// <summary>Where a node ends up, once every node above it has been read.</summary>
+        private NifTransform ResolvedWorld(FbxObject model)
+        {
+            if (_resolved.TryGetValue(model.Id, out NifTransform cached))
+                return cached;
+
+            NifTransform local = ReadTransform(model);
+
+            NifTransform world = Above(model) is { } above
+                ? local.ComposedWith(ResolvedWorld(above))
+                : local;
+
+            _resolved[model.Id] = world;
+
+            return world;
+        }
+
         private NifTransform ReadTransform(FbxObject model)
+        {
+            // A DCC tool that undid its importer's bone aiming says so here, bone by
+            // bone, and is believed. Nothing else in the scene can tell an aimed bone
+            // from one somebody turned on purpose.
+            _boneRest ??= FbxBoneRest.Authored(_scene);
+
+            if (_boneRest.TryGetValue(model.Name, out NifTransform rest))
+                return Relative(rest, model);
+
+            if (_boneRest.Count > 0 && Above(model) is { } parent)
+                return Rebased(Local(model), parent);
+
+            return Local(model);
+        }
+
+        /// <summary>A node's transform exactly as the scene states it.</summary>
+        private NifTransform Local(FbxObject model)
         {
             (double tx, double ty, double tz) = model.Properties.GetVector3("Lcl Translation");
             (double rx, double ry, double rz) = model.Properties.GetVector3("Lcl Rotation");
@@ -4229,6 +4293,57 @@ namespace NIFBX.Conversion
                 new NifVector3((float)tx, (float)ty, (float)tz),
                 NifTransform.RotationFromEulerDegrees((float)rx, (float)ry, (float)rz),
                 scale);
+        }
+
+        /// <summary>
+        /// A node's transform, moved from the frame the scene put its parent in to
+        /// the frame the parent is being written in.
+        /// </summary>
+        /// <remarks>
+        /// Handing a bone back the rest pose the NIF stated moves that bone's frame,
+        /// and everything hanging off it states where it is relative to the frame the
+        /// DCC tool had. Left alone they swing with the correction: a forearm turned
+        /// in Blender landed 36 units from the elbow, and the ragdoll bodies -- which
+        /// hang off bones like anything else -- came back rotated a quarter turn.
+        ///
+        /// So a child is re-expressed rather than copied: whatever its world place
+        /// was in the scene, it still is. That is the only reading that leaves the
+        /// person's own arrangement alone, since the scene is what they were looking
+        /// at when they arranged it.
+        /// </remarks>
+        private NifTransform Rebased(NifTransform local, FbxObject parent)
+        {
+            NifTransform scene = SceneWorld(parent);
+            NifTransform written = ResolvedWorld(parent);
+
+            if (!System.Numerics.Matrix4x4.Invert(written.ToMatrix(),
+                                                 out System.Numerics.Matrix4x4 inverse))
+            {
+                return local;
+            }
+
+            System.Numerics.Matrix4x4 shift = scene.ToMatrix() * inverse;
+
+            return System.Numerics.Matrix4x4.Identity.Equals(shift)
+                ? local
+                : NifTransform.FromMatrix(local.ToMatrix() * shift);
+        }
+
+        /// <summary>Where a node stands in the scene, as the scene states it.</summary>
+        private NifTransform SceneWorld(FbxObject model)
+        {
+            if (_sceneWorld.TryGetValue(model.Id, out NifTransform cached))
+                return cached;
+
+            NifTransform local = Local(model);
+
+            NifTransform world = Above(model) is { } above
+                ? local.ComposedWith(SceneWorld(above))
+                : local;
+
+            _sceneWorld[model.Id] = world;
+
+            return world;
         }
 
         private void AttachChildren(NifItem node, List<NifItem> children)
