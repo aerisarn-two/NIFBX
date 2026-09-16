@@ -661,7 +661,7 @@ namespace NIFBX.Nif
             && (property.Curves.Any(c => c.HasKeys)
                 || property.Constant is not null
                 || property.Empty
-                || property.CarriedInterpolator is not null);
+                || property.WholeInterpolator is not null);
 
         /// <summary>
         /// Records which of several same-typed controllers on a target this one is.
@@ -1095,7 +1095,7 @@ namespace NIFBX.Nif
                              p => p.Curves.Any(c => c.HasKeys)
                                   || p.Constant is not null
                                   || p.Empty
-                                  || p.CarriedInterpolator is not null))
+                                  || p.WholeInterpolator is not null))
                 {
                     entries.Add((track, node, property));
                 }
@@ -1210,6 +1210,16 @@ namespace NIFBX.Nif
                 && FbxInterpolatorCodec.Rebuild(model, carried) is { } whole)
             {
                 return whole;
+            }
+
+            // A track a curve could have said, whose curve a DCC tool dropped. The
+            // mirror on the node is all that is left, and it is the interpolator
+            // exactly as the file had it. See `FbxSequenceCodec`.
+            if (!property.Curves.Any(c => c.HasKeys)
+                && property.MirroredInterpolator is { } mirrored
+                && FbxInterpolatorCodec.Rebuild(model, mirrored) is { } kept)
+            {
+                return kept;
             }
 
             // An interpolator that holds nothing: no data block, and its Value left at

@@ -217,6 +217,19 @@ namespace NIFBX.Conversion
         /// </remarks>
         public IReadOnlyDictionary<string, string>? MirroredInterpolator { get; init; }
 
+        /// <summary>The whole interpolator, whichever way it travelled.</summary>
+        /// <remarks>
+        /// For deciding whether a track says anything and for rebuilding it. Not for
+        /// deciding who owns it: a carried interpolator is one no curve could express
+        /// and the sequence machinery drives it, while a mirrored one is an ordinary
+        /// float or colour track that hangs a controller on what it animates. Treating
+        /// the two alike took that controller away -- a dragon's alpha fade came back
+        /// without its `BSNiAlphaPropertyTestRefController` or the blend interpolator
+        /// the manager mixes into.
+        /// </remarks>
+        public IReadOnlyDictionary<string, string>? WholeInterpolator =>
+            CarriedInterpolator ?? MirroredInterpolator;
+
         /// <summary>
         /// Which data block this track's keys came from, when it came from a NIF.
         /// </summary>
@@ -490,7 +503,7 @@ namespace NIFBX.Conversion
         public bool Says =>
             HasKeys
             || Pose is not null
-            || Properties.Any(p => p.Constant is not null || p.Empty || p.CarriedInterpolator is not null);
+            || Properties.Any(p => p.Constant is not null || p.Empty || p.WholeInterpolator is not null);
     }
 
     /// <summary>

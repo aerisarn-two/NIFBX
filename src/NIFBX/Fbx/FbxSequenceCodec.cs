@@ -136,7 +136,11 @@ namespace NIFBX.Fbx
                         DataId = (int)Number(model, prefix + "datid", -1),
                         ControllerFlags = Optional(model, prefix + "flags"),
                         ControllerPhase = Phase(model, prefix + "phase"),
-                        CarriedInterpolator = fields
+
+                        // Mirrored, not carried: this is an ordinary track that hangs
+                        // a controller on what it animates, and a carried one is told
+                        // it has none. See `AnimProperty.WholeInterpolator`.
+                        MirroredInterpolator = fields
                     }));
             }
 
