@@ -6,17 +6,17 @@
 # loses -- a NIF -> FBX -> NIF trip keeps everything the stack properties hold,
 # and Blender writes none of them back.
 #
-# The add-on's importer rather than the built-in one: only it has the Armature
-# panel, and Skyrim's bones run down their local +X where Blender assumes +Y, so
-# without Automatic Bone Orientation every rig arrives ninety degrees across its
-# own limbs.
+# The legacy importer, not the built-in one: only it has an Armature panel, and
+# the setting on that panel is the whole of this.
 #
-# That orientation is what makes the rig posable and it rewrites the rest pose to
-# get it, which Blender's exporter cannot undo: 82 of a draugr's 93 nodes come
-# back turned. SKEX_ADDON points at SKDcc's `skyrim_export`, which reads the file
-# a second time without the aiming to learn the pose it states, and puts that
-# pose back for the duration of the export. Without it set, the pass measures
-# what Blender alone does, which is the number that says why the module exists.
+# Automatic Bone Orientation aims each bone at the bone below it, which is the
+# only way Blender draws a Skyrim rig as a skeleton rather than as sticks all
+# pointing one way -- and it rewrites the rest pose to do it, with no per-bone
+# inverse on the way out: 44 of skeleton_cow's 48 nodes come back turned, 82 of
+# a draugr's 93. SKEX_ADDON points at SKDcc's `skyrim_export`, which turns the
+# aiming off and has `skyrim_rig` draw the bones down their chains instead, by
+# turning a shape while the bone stays where the file put it. Without it set,
+# this is Blender bare, and the two numbers together are what say it works.
 #
 # `bake_anim_use_all_actions` is the expensive one, and it is on deliberately. A
 # NIF's sequences each become an action, and only one of them can be the active
@@ -54,12 +54,12 @@ if not rigging:
         use_anim=True,
         ignore_leaf_bones=False)
 
-rest = None
+settings = None
 
 if rigging:
     sys.path.insert(0, rigging)
 
-    from skyrim_export import load, rest
+    from skyrim_export import load, settings
 
     load.read(source)
 
@@ -72,10 +72,13 @@ if addon:
     bpy.ops.skhk.build_constraints()
     bpy.ops.skhk.bake()
 
-stating = rest.restored(bpy.context.scene) if rest else None
+# The rig has to stand at rest while its skeleton is written, or the pose is
+# written into it -- and it must not be told to *ignore* poses, or every action
+# bakes flat. `at_rest` empties the channels, which is both.
+resting = settings.at_rest(bpy.context.scene) if settings else None
 
-if stating:
-    stating.__enter__()
+if resting:
+    resting.__enter__()
 
 bpy.ops.export_scene.fbx(
     filepath=destination,
@@ -111,5 +114,5 @@ bpy.ops.export_scene.fbx(
     bake_anim_force_startend_keying=True,
     path_mode='AUTO')
 
-if stating:
-    stating.__exit__(None, None, None)
+if resting:
+    resting.__exit__(None, None, None)
