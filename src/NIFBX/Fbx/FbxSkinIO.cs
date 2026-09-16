@@ -417,26 +417,45 @@ namespace NIFBX.Fbx
                 }
             }
 
+            // What is true of the skin as a whole, written on the deformer and on the
+            // node both, for the reason the slots above are: a deformer's properties
+            // do not survive a DCC tool. Blender rebuilds a skin from its vertex
+            // groups and writes a deformer of its own, and everything recorded on the
+            // old one has gone.
+            //
+            // The class is the one that shows. Without it every skin comes back as a
+            // `BSDismemberSkinInstance`, because that is the better guess for a scene
+            // authored elsewhere -- and a file that went in as a plain
+            // `NiSkinInstance` is not authored elsewhere, it is this converter losing
+            // what it was told. A chicken and a wolf both came back dismembered.
+            FbxObject? node = scene.ParentsOf(geometry.Id).FirstOrDefault(o => o.Class == "Model");
+
+            void Whole(string name, string value)
+            {
+                skinObject.Properties.SetUserString(name, value);
+                node?.Properties.SetUserString(name, value);
+            }
+
             // The class the shape had, when the scene came from a NIF at all.
             if (skin.InstanceType.Length > 0)
-                skinObject.Properties.SetUserString(InstanceTypeProperty, skin.InstanceType);
+                Whole(InstanceTypeProperty, skin.InstanceType);
 
             // Which copy of the weights the file kept. Only when it is the unusual one.
             if (!skin.WeightsInBoneList)
-                skinObject.Properties.SetUserString(BufferWeightsProperty, "1");
+                Whole(BufferWeightsProperty, "1");
 
             // The skin's own bind transform, which has nowhere else to go.
             if (!skin.SkinTransform.Equals(NifTransform.Identity))
-                skinObject.Properties.SetUserString(SkinTransformProperty, Matrix(skin.SkinTransform));
+                Whole(SkinTransformProperty, Matrix(skin.SkinTransform));
 
             // ...and the node its bones are measured against.
             if (skin.SkeletonRoot.Length > 0)
-                skinObject.Properties.SetUserString(SkeletonRootProperty, skin.SkeletonRoot);
+                Whole(SkeletonRootProperty, skin.SkeletonRoot);
 
             // Which skin data it shared, so two shapes that shared one still do.
             if (skin.SkinDataId >= 0)
             {
-                skinObject.Properties.SetUserString(
+                Whole(
                     DataIdProperty,
                     skin.SkinDataId.ToString(System.Globalization.CultureInfo.InvariantCulture));
             }
@@ -595,23 +614,32 @@ namespace NIFBX.Fbx
                 return null;
 
             // The whole-skin facts live on the first, which is the one that carries
-            // them out.
+            // them out -- and on the node, which is the one that comes back. A
+            // deformer that has been through a DCC tool is a new deformer with none
+            // of them, so the node answers whenever the deformer cannot.
             FbxObject skinObject = skinObjects[0];
+            FbxObject? node = scene.ParentsOf(geometry.Id).FirstOrDefault(o => o.Class == "Model");
+
+            string Whole(string name)
+            {
+                string said = skinObject.Properties.GetString(name);
+
+                return said.Length > 0 ? said : node?.Properties.GetString(name) ?? string.Empty;
+            }
 
             var skin = new SkinData
             {
-                WeightsInBoneList =
-                    skinObject.Properties.GetString(BufferWeightsProperty).Length == 0,
-                InstanceType = skinObject.Properties.GetString(InstanceTypeProperty),
+                WeightsInBoneList = Whole(BufferWeightsProperty).Length == 0,
+                InstanceType = Whole(InstanceTypeProperty),
                 SkinDataId = int.TryParse(
-                    skinObject.Properties.GetString(DataIdProperty),
+                    Whole(DataIdProperty),
                     System.Globalization.NumberStyles.Integer,
                     System.Globalization.CultureInfo.InvariantCulture,
                     out int dataId)
                     ? dataId
                     : -1,
-                SkinTransform = ParseMatrix(skinObject.Properties.GetString(SkinTransformProperty)),
-                SkeletonRoot = skinObject.Properties.GetString(SkeletonRootProperty)
+                SkinTransform = ParseMatrix(Whole(SkinTransformProperty)),
+                SkeletonRoot = Whole(SkeletonRootProperty)
             };
 
             // The node carries these as well as the skin, because a DCC tool keeps a
