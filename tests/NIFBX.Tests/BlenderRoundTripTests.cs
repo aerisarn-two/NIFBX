@@ -268,11 +268,11 @@ namespace NIFBX.Tests
         /// 82 of a draugr's 93, the worst by 180 degrees -- while not one of them, in
         /// either file, has moved.
         ///
-        /// That every joint stays put is the whole reason this is recoverable. The
-        /// NIF's own pose rides out in <see cref="FbxBoneRest.ReferenceProperty"/>,
-        /// and SKDcc's `skyrim_export.rest` hands back the bones nobody has moved
-        /// since import -- which it can tell, and this converter cannot, because it
-        /// wrote down what the importer did before anyone touched it.
+        /// That every joint stays put is what makes it recoverable, and it is
+        /// recovered where it was lost. The FBX this converter writes is right;
+        /// Blender is what turns the bones, so SKDcc's `skyrim_export.rest` is what
+        /// turns them back, undoing its own importer's aiming on the way out. The
+        /// converter has no part in it and no opinion about it.
         ///
         /// <c>SKEX_ADDON</c> names the directory holding that add-on. Without it this
         /// reports the damage and stops, which is what a checkout with no copy of

@@ -162,8 +162,6 @@ namespace NIFBX.Fbx
         /// </remarks>
         public const string BoneBindProperty = "nif_bone_skin_transform";
 
-
-
         /// <summary>Where the skin's own bind transform rides.</summary>
         /// <remarks>
         /// `NiSkinData` carries one transform for the whole skin as well as one per
