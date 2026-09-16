@@ -256,6 +256,113 @@ namespace NIFBX.Tests
         }
 
         /// <summary>
+        /// A rig's rest pose, through Blender and back.
+        /// </summary>
+        /// <remarks>
+        /// A Skyrim bone is a transform with no length and no direction, so an
+        /// importer that draws one has to invent a direction, and Blender's invents
+        /// the only useful one: it aims each bone at the bone below it. That is what
+        /// makes a rig posable rather than a heap of sticks, and Blender then writes
+        /// the aimed pose back out with no per-bone inverse for it. Measured here
+        /// without the add-on: 44 of `skeleton_cow`'s 48 nodes come back turned, and
+        /// 82 of a draugr's 93, the worst by 180 degrees -- while not one of them, in
+        /// either file, has moved.
+        ///
+        /// That every joint stays put is the whole reason this is recoverable. The
+        /// NIF's own pose rides out in <see cref="FbxBoneRest.ReferenceProperty"/>,
+        /// and SKDcc's `skyrim_export.rest` hands back the bones nobody has moved
+        /// since import -- which it can tell, and this converter cannot, because it
+        /// wrote down what the importer did before anyone touched it.
+        ///
+        /// <c>SKEX_ADDON</c> names the directory holding that add-on. Without it this
+        /// reports the damage and stops, which is what a checkout with no copy of
+        /// SKDcc beside it should see.
+        /// </remarks>
+        [BlenderFact]
+        public void ARigKeepsItsRestPoseThroughBlender()
+        {
+            const string Fixture = "xpmsse/skeleton_cow.nif";
+
+            NifModel source = NifModel.Load(
+                Path.Combine(AppContext.BaseDirectory, "Resources", Fixture), Db);
+
+            NifModel? rebuilt = ThroughBlender(source, Fixture, out string said);
+
+            Assert.True(rebuilt is not null, $"Blender would not read the rig. {said}");
+
+            Dictionary<string, NifTransform> before = WorldByName(source);
+            Dictionary<string, NifTransform> after = WorldByName(rebuilt!);
+
+            var turned = new List<string>();
+            int moved = 0;
+
+            foreach ((string name, NifTransform was) in before)
+            {
+                if (!after.TryGetValue(name, out NifTransform now))
+                    continue;
+
+                if (Apart(was.Translation, now.Translation) > 0.01)
+                    moved++;
+
+                if (Between(was.Rotation, now.Rotation) > 0.5)
+                    turned.Add(name);
+            }
+
+            Console.WriteLine(
+                $"{Fixture}: {before.Count} nodes, {moved} moved, {turned.Count} turned");
+
+            if (Environment.GetEnvironmentVariable("SKEX_ADDON") is not { Length: > 0 })
+                return;
+
+            Assert.Empty(turned);
+            Assert.Equal(0, moved);
+        }
+
+        /// <summary>Where every named node stands, which is order-independent.</summary>
+        /// <remarks>
+        /// Not <c>NifComparer</c>: it pairs children by index, so a converter that
+        /// reorders nodes reports every transform as different when none has moved.
+        /// </remarks>
+        private static Dictionary<string, NifTransform> WorldByName(NifModel model)
+        {
+            var found = new Dictionary<string, NifTransform>(StringComparer.Ordinal);
+
+            void Walk(NifItem node, NifTransform above)
+            {
+                NifTransform here = model.GetTransform(node).ComposedWith(above);
+
+                if (model.GetName(node) is { Length: > 0 } name)
+                    found[name] = here;
+
+                foreach (NifItem child in model.GetRefArray(node, "Children"))
+                    Walk(child, here);
+            }
+
+            if (model.FindItem(model.Footer, "Roots") is { Children.Count: > 0 } roots)
+                Walk(model.GetBlock(roots.Children[0]), NifTransform.Identity);
+
+            return found;
+        }
+
+        private static double Apart(NifVector3 a, NifVector3 b)
+        {
+            double x = a.X - b.X, y = a.Y - b.Y, z = a.Z - b.Z;
+
+            return Math.Sqrt((x * x) + (y * y) + (z * z));
+        }
+
+        /// <summary>The angle between two rotations, in degrees.</summary>
+        private static double Between(NifMatrix33 a, NifMatrix33 b)
+        {
+            NifQuat p = new NifTransform(new NifVector3(), a, 1f).ToQuaternion();
+            NifQuat q = new NifTransform(new NifVector3(), b, 1f).ToQuaternion();
+
+            double dot = Math.Abs((p.X * q.X) + (p.Y * q.Y) + (p.Z * q.Z) + (p.W * q.W));
+
+            return Math.Acos(Math.Clamp(dot, -1d, 1d)) * 360d / Math.PI;
+        }
+
+        /// <summary>
         /// A batch of the game's own meshes, through Blender.
         /// </summary>
         /// <remarks>

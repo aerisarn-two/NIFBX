@@ -11,6 +11,13 @@
 # without Automatic Bone Orientation every rig arrives ninety degrees across its
 # own limbs.
 #
+# That orientation is what makes the rig posable and it rewrites the rest pose to
+# get it, which Blender's exporter cannot undo: 83 of a draugr's 93 nodes come
+# back turned. SKEX_ADDON points at SKDcc's `skyrim_export`, whose `rest` module
+# writes the imported pose down here and answers for every bone still matching it
+# on the way out. Without it set, the pass measures what Blender alone does,
+# which is the number that says why the module exists.
+#
 # `bake_anim_use_all_actions` is the expensive one, and it is on deliberately. A
 # NIF's sequences each become an action, and only one of them can be the active
 # one, so exporting only the active action would drop every sequence but one.
@@ -35,6 +42,7 @@ source, destination = argv[0], argv[1]
 # back on the way out. Without it, the properties ride through untouched as
 # properties. The two should agree, and the test that runs both is what says so.
 addon = os.environ.get("SKHK_ADDON", "")
+rigging = os.environ.get("SKEX_ADDON", "")
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 
@@ -45,6 +53,17 @@ bpy.ops.import_scene.fbx(
     use_anim=True,
     ignore_leaf_bones=False)
 
+rest = None
+
+if rigging:
+    sys.path.insert(0, rigging)
+
+    from skyrim_export import rest
+
+    for obj in bpy.data.objects:
+        if obj.type == "ARMATURE":
+            rest.record(obj)
+
 if addon:
     sys.path.insert(0, addon)
 
@@ -53,6 +72,11 @@ if addon:
     skyrim_havok_constraints.register()
     bpy.ops.skhk.build_constraints()
     bpy.ops.skhk.bake()
+
+stating = rest.stated(bpy.context.scene) if rest else None
+
+if stating:
+    stating.__enter__()
 
 bpy.ops.export_scene.fbx(
     filepath=destination,
@@ -87,3 +111,6 @@ bpy.ops.export_scene.fbx(
     bake_anim_use_all_actions=True,
     bake_anim_force_startend_keying=True,
     path_mode='AUTO')
+
+if stating:
+    stating.__exit__(None, None, None)
