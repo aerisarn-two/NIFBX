@@ -1741,6 +1741,14 @@ namespace NIFBX.Conversion
             FbxObject holder = FbxMeshWriter.AddModel(
                 scene, $"{name}_support", "Mesh", _model.GetTransform(shape));
 
+            // Said again for a skinned shape, where a DCC tool may not keep the
+            // holder's own placement. See FbxSkinIO.SkinnedShapeTransformProperty.
+            if (_model.GetRef(shape, "Skin") is not null)
+            {
+                holder.Properties.SetUserString(
+                    FbxSkinIO.SkinnedShapeTransformProperty, FbxSkinIO.Matrix(_model.GetTransform(shape)));
+            }
+
             // A shape the file hides -- an emitter's surface, a ragdoll's proxy -- is
             // still written, because the rebuild needs it, and still not drawn.
             if (IsHidden(shape))

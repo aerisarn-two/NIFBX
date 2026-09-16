@@ -92,6 +92,22 @@ namespace NIFBX.Fbx
         /// </remarks>
         public const string PartitionCountProperty = "nif_skin_partition_count";
 
+        /// <summary>A skinned shape's own transform, on its holder.</summary>
+        /// <remarks>
+        /// The holder's local transform already says it, and after Blender it does
+        /// not always: Blender reparents a skinned mesh to the scene root and can
+        /// zero the placement on the way out. A horker's two body meshes both stand
+        /// 33.20 units up; one came back at 33.20 and the other at the origin. A
+        /// falmer's came back 95.22 units out, a human's hair and beard 120.35.
+        ///
+        /// Nothing else moved -- the vertices and the skin's own transform came back
+        /// identical -- and the game places a skinned shape through its skin, so
+        /// the number was wrong without being visibly wrong. That is also why it is
+        /// safe to prefer this over what the scene says: moving a skinned mesh's
+        /// object is not an edit anything downstream can see.
+        /// </remarks>
+        public const string SkinnedShapeTransformProperty = "nif_skinned_transform";
+
         /// <summary>Prefix on one partition's view, before its index.</summary>
         /// <remarks>
         /// <c>nif_skin_part0_vertices</c> is the vertices that partition draws, as

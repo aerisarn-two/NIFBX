@@ -540,7 +540,18 @@ namespace NIFBX.Conversion
             {
                 foreach (FbxObject geometry in geometries)
                 {
-                    if (BuildShape(geometry, model, transform) is { } shape)
+                    // A skinned shape's own placement, where the holder says it and a
+                    // DCC tool may not have kept it. See
+                    // FbxSkinIO.SkinnedShapeTransformProperty.
+                    NifTransform placed = transform;
+
+                    if (model.Properties.GetString(FbxSkinIO.SkinnedShapeTransformProperty) is { Length: > 0 } stated
+                        && _scene.ChildrenOf(geometry.Id).Any(o => o.Class == "Deformer"))
+                    {
+                        placed = FbxSkinIO.ParseMatrix(stated);
+                    }
+
+                    if (BuildShape(geometry, model, placed) is { } shape)
                         into.Add(shape);
                 }
 
