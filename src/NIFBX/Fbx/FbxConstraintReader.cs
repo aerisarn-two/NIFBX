@@ -121,7 +121,11 @@ namespace NIFBX.Fbx
 
             var constraint = new ConstraintImport
             {
-                Type = node.Properties.GetString(FbxConstraintWriter.TypeProperty),
+                // Ours first: a scene that folded a Havok rig in beside the mesh has
+                // had `constraint_type` overwritten with the rig's idea of the joint.
+                Type = node.Properties.GetString(FbxConstraintWriter.NifTypeProperty) is { Length: > 0 } stated
+                    ? stated
+                    : node.Properties.GetString(FbxConstraintWriter.TypeProperty),
                 Wrapper = node.Properties.GetString(FbxConstraintWriter.WrapperProperty),
                 OwnerName = owner,
                 // An empty far-body name means "the parent", unless the constraint says

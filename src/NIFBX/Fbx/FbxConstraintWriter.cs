@@ -56,6 +56,26 @@ namespace NIFBX.Fbx
         /// <summary>The property naming which kind of constraint this was.</summary>
         public const string TypeProperty = "constraint_type";
 
+        /// <summary>The same thing, under a name only this library writes.</summary>
+        /// <remarks>
+        /// `constraint_type` is not ours alone. HKFBX writes it too, on the same
+        /// nodes, for a different fact: which kind of *Havok* joint this is, where
+        /// this says which NIF constraint class it is. The two agree on most
+        /// creatures and not on all -- a horse's hips and shoulders are
+        /// `bhkRagdollConstraint` in `skeleton.nif` and limited hinges in
+        /// `skeleton.hkx`, and a dog, a wolf and a mammoth disagree as well -- and
+        /// when SKAssets folds the two files into one scene, whichever is written
+        /// second wins. Havok's is, so four of a horse's constraints came back a
+        /// class they never were, carrying a ragdoll's cone, plane and twist under
+        /// a limited hinge's name.
+        ///
+        /// Neither library is wrong to want the property; they are answering
+        /// different questions. So this one answers under its own name and reads
+        /// that first, and `constraint_type` is still written for anything that
+        /// reads it -- ck-cmd's scenes state it and nothing else.
+        /// </remarks>
+        public const string NifTypeProperty = "nif_constraint_type";
+
         /// <summary>The property naming the block wrapping the descriptor, if any.</summary>
         public const string WrapperProperty = "constraint_wrapper";
 
@@ -162,7 +182,10 @@ namespace NIFBX.Fbx
             if (entityB is null)
                 node.Properties.SetUserString(OneSidedProperty, "1");
 
-            node.Properties.SetUserString(TypeProperty, TypeNameOf(model, constraint, descriptor));
+            string typeName = TypeNameOf(model, constraint, descriptor);
+
+            node.Properties.SetUserString(TypeProperty, typeName);
+            node.Properties.SetUserString(NifTypeProperty, typeName);
 
             // Said outright rather than left to be parsed out of the node's name:
             // Blender caps a name at 63 characters and rewrites the overflow as a
