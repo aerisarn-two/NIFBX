@@ -355,6 +355,16 @@ namespace NIFBX.Nif
 
                 var property = new AnimProperty(colour ? 3 : 1)
                 {
+                    // Mirrored on the node for the same reason a sequenced track is:
+                    // its curve rides a custom property a DCC tool drops. A skeleton's
+                    // `NiFloatExtraDataController` -- the werewolf's, the hagraven's,
+                    // both atronachs' -- came back from Blender missing with its
+                    // interpolator and its data, 64 blocks across seven skeletons.
+                    //
+                    // Not a boolean: a visibility track is one, and it already rides
+                    // the node through `FbxVisibilityCodec`. Carrying it twice would
+                    // write its controller twice.
+                    MirroredInterpolator = boolean ? null : FbxInterpolatorCodec.Capture(model, interpolator),
                     Name = AnimProperty.ToPropertyName(controller.Name, id, interpolatorId, string.Empty),
                     IsBoolean = boolean,
                     ControllerType = controller.Name,
