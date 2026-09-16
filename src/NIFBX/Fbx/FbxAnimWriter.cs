@@ -172,6 +172,12 @@ namespace NIFBX.Fbx
 
                 if (model is not null)
                 {
+                    // A node controller of the file's own, so that a tool which bakes
+                    // the whole rig into this stack can be told apart from the file
+                    // on the way back. See `FbxSequenceCodec.StandaloneProperty`.
+                    if (model is not null && sequence.Name == Nif.NifAnimAccess.DefaultSequenceName)
+                        model.Properties.SetUserString(FbxSequenceCodec.StandaloneProperty, "1");
+
                     AddChannel(scene, layer, model, "T", "Lcl Translation", track.Translation, null, "");
                     AddChannel(scene, layer, model, "R", "Lcl Rotation", track.Rotation, stack, track.NodeName);
                     AddChannel(scene, layer, model, "S", "Lcl Scaling", track.Scale, null, "");

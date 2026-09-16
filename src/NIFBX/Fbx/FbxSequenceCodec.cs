@@ -39,6 +39,25 @@ namespace NIFBX.Fbx
         /// <summary>Prefix on one carried track's fields, before its index.</summary>
         public const string Prefix = "nsq_";
 
+        /// <summary>That this node had a controller of its own, outside any sequence.</summary>
+        /// <remarks>
+        /// Those travel in the invented `Take 001` stack, and their keys survive a
+        /// DCC tool -- but a tool bakes the whole rig into that stack, so what comes
+        /// back says every bone has one. A dog states four node controllers and came
+        /// back with 53, a chaurus 36 and came back with 42, each of the extras a
+        /// controller attached to a bone that never moved.
+        ///
+        /// Blender's exporter has a setting for this and it is not enough: with
+        /// `bake_anim_use_all_bones` off -- "force exporting at least one key of
+        /// animation for all bones" -- a dog's stack still came back with 159 curve
+        /// nodes for the 11 it went out with. So the nodes that had one say so, and
+        /// on the way back only those are believed.
+        ///
+        /// A scene where nothing says so is a scene this did not write, and there
+        /// every track is taken at face value, as it always was.
+        /// </remarks>
+        public const string StandaloneProperty = "nif_standalone_track";
+
         /// <summary>What one node says about one track it carries.</summary>
         public sealed record Carried(string Sequence, uint CycleType, string AccumRoot, AnimProperty Property);
 

@@ -29,6 +29,7 @@ namespace NIFBX.Fbx
 
             ReadCarriedVisibility(scene, sequences);
             ReadCarriedSequences(scene, sequences);
+            OnlyStatedStandalones(scene, sequences);
 
             return sequences;
         }
@@ -51,6 +52,39 @@ namespace NIFBX.Fbx
         /// write a stack about. Recreating it by name puts the controllers back where
         /// they were, attached to their targets.
         /// </remarks>
+        /// <summary>
+        /// Keeps the invented stack to the nodes that said they had a controller.
+        /// </summary>
+        /// <remarks>
+        /// A controller hung on a node travels in the `Take 001` stack, and a DCC
+        /// tool bakes the whole rig into it: a dog's four node controllers came back
+        /// as 53, one on every bone, and a chaurus's 36 as 42. Blender's own setting
+        /// for this is not enough -- with `bake_anim_use_all_bones` off the stack
+        /// still came back with 159 curve nodes for the 11 it went out with.
+        ///
+        /// So the nodes that had one say so on the way out, and here only those are
+        /// believed. A scene where no node says so was not written by this and is
+        /// taken at face value, which is what a file authored somewhere else is.
+        /// </remarks>
+        private static void OnlyStatedStandalones(FbxScene scene, List<AnimSequence> sequences)
+        {
+            AnimSequence? standalone = sequences.FirstOrDefault(
+                s => s.Name == NifAnimAccess.DefaultSequenceName);
+
+            if (standalone is null)
+                return;
+
+            var stated = scene.OfClass("Model")
+                .Where(m => m.Properties.GetString(FbxSequenceCodec.StandaloneProperty).Length > 0)
+                .Select(m => m.Id)
+                .ToHashSet();
+
+            if (stated.Count == 0)
+                return;
+
+            standalone.Tracks.RemoveAll(t => !stated.Contains(t.BindId));
+        }
+
         /// <summary>
         /// Puts back the sequenced tracks whose curves did not survive the scene.
         /// </summary>
