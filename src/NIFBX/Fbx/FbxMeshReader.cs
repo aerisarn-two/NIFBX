@@ -383,6 +383,13 @@ namespace NIFBX.Fbx
             // the wrong vertices from the wrap onward, so none of it is worth keeping.
             return overflowed ? null : mesh;
 
+            void Record(int controlPoint, ushort vertex)
+            {
+                if (!mesh.VerticesOfControlPoint.TryGetValue(controlPoint, out List<ushort>? all))
+                    mesh.VerticesOfControlPoint[controlPoint] = all = [];
+                if (!all.Contains(vertex)) all.Add(vertex);
+            }
+
             ushort Emit((int Corner, int ControlPoint) at)
             {
                 NifVector3 position = at.ControlPoint < controlPoints.Length
@@ -430,6 +437,7 @@ namespace NIFBX.Fbx
                     // Two control points that merged both answer to the vertex they
                     // became, so a cluster weighting either one still lands right.
                     mesh.VertexOfControlPoint[at.ControlPoint] = existing;
+                    Record(at.ControlPoint, existing);
                     return existing;
                 }
 
@@ -448,6 +456,7 @@ namespace NIFBX.Fbx
                 var index = (ushort)mesh.Vertices.Count;
                 seen[key] = index;
                 mesh.VertexOfControlPoint[at.ControlPoint] = index;
+                Record(at.ControlPoint, index);
 
                 mesh.Vertices.Add(position);
 

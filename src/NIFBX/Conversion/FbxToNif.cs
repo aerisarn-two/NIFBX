@@ -2837,7 +2837,8 @@ namespace NIFBX.Conversion
         ///
         /// Two control points only merge when their influences are identical, so a
         /// weight that lands on a vertex already carrying one from its twin is the same
-        /// weight and is dropped rather than added twice.
+        /// weight and is dropped rather than added twice. The other way round, one
+        /// control point split into several vertices gives each of them the weight.
         /// </remarks>
         private void RemapSkinToVertices(SkinData? skin, MeshGeometry mesh, string name)
         {
@@ -2853,16 +2854,24 @@ namespace NIFBX.Conversion
 
                 foreach ((ushort point, float weight) in bone.Weights)
                 {
-                    if (!mesh.VertexOfControlPoint.TryGetValue(point, out ushort vertex))
+                    // Every vertex the point became: a point split along a UV seam is
+                    // several vertices, and each of them is moved by the same bones.
+                    IEnumerable<ushort> vertices =
+                        mesh.VerticesOfControlPoint.TryGetValue(point, out List<ushort>? all) ? all
+                        : mesh.VertexOfControlPoint.TryGetValue(point, out ushort one) ? [one]
+                        : [];
+
+                    bool reached = false;
+                    foreach (ushort vertex in vertices)
                     {
-                        // A control point no triangle reaches is not a vertex, so there
-                        // is nothing for its weight to hold on to.
-                        lost++;
-                        continue;
+                        reached = true;
+                        if (already.Add(vertex))
+                            moved.Add((vertex, weight));
                     }
 
-                    if (already.Add(vertex))
-                        moved.Add((vertex, weight));
+                    // A control point no triangle reaches is not a vertex, so there
+                    // is nothing for its weight to hold on to.
+                    if (!reached) lost++;
                 }
 
                 bone.Weights.Clear();

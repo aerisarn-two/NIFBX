@@ -113,6 +113,21 @@ namespace NIFBX.Conversion
         /// </remarks>
         public Dictionary<int, ushort> VertexOfControlPoint { get; } = [];
 
+        /// <summary>
+        /// Every vertex each control point became, where <see cref="VertexOfControlPoint"/>
+        /// holds only the last.
+        /// </summary>
+        /// <remarks>
+        /// One control point becomes several vertices wherever the corners that reach it
+        /// disagree -- a UV seam, a hard edge. A mesh converted from a NIF never has that,
+        /// since every NIF vertex goes out as its own control point, so the game's meshes
+        /// round trip whether or not a skin's weights reach every copy. A mesh made in a
+        /// DCC tool does: Blender's cat has 1,191 control points and 1,555 vertices, and
+        /// with the weights on one copy each the other 364 were bound to nothing and
+        /// collapsed to the origin, tearing the skin open along every seam.
+        /// </remarks>
+        public Dictionary<int, List<ushort>> VerticesOfControlPoint { get; } = [];
+
         public bool HasNormals => Normals.Count > 0;
 
         public bool HasUvs => Uvs.Count > 0;
